@@ -1,0 +1,17 @@
+# Core dependencies
+
+typer
+google-api-python-client
+google-auth-oauthlib
+
+# For legacy compatibility (not recommended)
+# oauth2client
+
+# Development dependencies (add in requirements-dev.txt):
+# pytest
+pytest
+# pytest-cov
+# mypy
+# black
+# isort
+# flake8
