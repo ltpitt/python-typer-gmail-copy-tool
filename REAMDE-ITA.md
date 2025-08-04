@@ -51,7 +51,21 @@ pip install typer google-api-python-client oauth2client
 
 1. Abilitare l’API Gmail nella Google Cloud Console.
 2. Creare credenziali OAuth 2.0.
-3. Scaricare `credentials.json` e posizionarlo nella directory di lavoro.
+
+### Come ottenere il file `credentials.json` per l’accesso all’API Gmail
+
+1. Vai su [Google Cloud Console](https://console.cloud.google.com/).
+2. Crea un nuovo progetto (o seleziona uno esistente).
+3. Vai su **API e servizi > Libreria** e abilita **Gmail API**.
+4. Vai su **API e servizi > Credenziali**.
+5. Clicca su **Crea credenziali** > **ID client OAuth**.
+   - Se richiesto, configura prima la schermata di consenso OAuth.
+   - Scegli **Applicazione desktop** come tipo di applicazione.
+   - Dai un nome (es. "gmail-copy-tool").
+6. Clicca **Crea**. Scarica il file `credentials.json`.
+7. Posiziona `credentials.json` nella directory di lavoro del progetto (dove esegui la CLI).
+
+Questo file consente all’app di richiedere l’autorizzazione dell’utente per accedere a Gmail.
 
 ---
 

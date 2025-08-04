@@ -38,6 +38,10 @@ pip-delete-this-directory.txt
 
 # Unit test / coverage reports
 htmlcov/
+# Gmail API secrets
+credentials.json
+# Token files for Gmail accounts
+token_*.json
 .tox/
 .nox/
 .coverage
