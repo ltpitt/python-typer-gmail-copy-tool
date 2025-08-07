@@ -109,7 +109,7 @@ def delete_duplicates(
 
         logger.info(f"Duplicate email cleanup completed for {account}.")
         logger.debug("Exiting with code 0")
-        raise typer.Exit(code=0)
+        return  # Success: just return, do not raise typer.Exit
 
     except Exception as e:
         import traceback
@@ -117,6 +117,3 @@ def delete_duplicates(
         logger.error(traceback.format_exc())
         logger.debug("Exiting with code 1")
         raise typer.Exit(code=1)
-
-    # Ensure no exception is raised after exiting
-    return
