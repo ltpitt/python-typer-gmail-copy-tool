@@ -17,6 +17,8 @@ def copy(
     target: str = typer.Option(..., help="Target Gmail account email address"),
     credentials_source: str = typer.Option("credentials_source.json", help="Path to source account credentials file (default: credentials_source.json)"),
     credentials_target: str = typer.Option("credentials_target.json", help="Path to target account credentials file (default: credentials_target.json)"),
+    token_source: str = typer.Option(None, help="Path to OAuth token file for source account (optional)"),
+    token_target: str = typer.Option(None, help="Path to OAuth token file for target account (optional)"),
     label: str = typer.Option(None, help="Copy only emails with this Gmail label"),
     after: str = typer.Option(None, help="Copy emails after this date (YYYY-MM-DD)"),
     before: str = typer.Option(None, help="Copy emails before this date (YYYY-MM-DD)"),
@@ -32,11 +34,11 @@ def copy(
     try:
         logger.debug(f"Source account: {source}, credentials file: {credentials_source}")
         typer.secho("[ACTION REQUIRED] Please enter authentication data for the SOURCE account.", fg=typer.colors.BLUE, bold=True)
-        source_client = GmailClient(source, credentials_path=credentials_source, scope="readonly")
+        source_client = GmailClient(source, credentials_path=credentials_source, token_path=token_source, scope="readonly")
         logger.debug(f"Target account: {target}, credentials file: {credentials_target}")
         typer.secho("[ACTION REQUIRED] Please enter authentication data for the TARGET account.", fg=typer.colors.BLUE, bold=True)
         # Use highest permission for target
-        target_client = GmailClient(target, credentials_path=credentials_target, scope="mail.google.com")
+        target_client = GmailClient(target, credentials_path=credentials_target, token_path=token_target, scope="mail.google.com")
 
         # Print the account email argument and the credentials email for both source and target
         import jwt

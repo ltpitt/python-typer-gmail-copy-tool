@@ -141,6 +141,8 @@ def compare(
     target: str = typer.Option(..., help="Target Gmail account email address"),
     credentials_source: str = typer.Option("credentials_source.json", help="Path to source account credentials file (default: credentials_source.json)"),
     credentials_target: str = typer.Option("credentials_target.json", help="Path to target account credentials file (default: credentials_target.json)"),
+    token_source: str = typer.Option(None, help="Path to OAuth token file for source account (optional)"),
+    token_target: str = typer.Option(None, help="Path to OAuth token file for target account (optional)"),
     label: str = typer.Option(None, help="Compare only emails with this Gmail label"),
     after: str = typer.Option(None, help="Compare emails after this date (YYYY-MM-DD)"),
     before: str = typer.Option(None, help="Compare emails before this date (YYYY-MM-DD)")
@@ -156,8 +158,8 @@ def compare(
     logger.info(f"[COMPARE] after={after} before={before} label={label}")
     logger.debug(f"Source: {source}, Target: {target}")
     logger.debug(f"Credentials source: {credentials_source}, Credentials target: {credentials_target}")
-    source_client = GmailClient(source, credentials_path=credentials_source)
-    target_client = GmailClient(target, credentials_path=credentials_target)
+    source_client = GmailClient(source, credentials_path=credentials_source, token_path=token_source)
+    target_client = GmailClient(target, credentials_path=credentials_target, token_path=token_target)
 
     logger.debug("Fetching all message IDs for source...")
     source_ids_list = get_all_message_ids(source_client, label=label, after=after, before=before)

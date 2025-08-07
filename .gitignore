@@ -1,3 +1,5 @@
+# Ignore user-specific VS Code settings but allow project tasks/config
+.vscode/settings.json
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[codz]
@@ -212,3 +214,7 @@ __marimo__/
 
 # Any token / auth data
 *.json
+
+# Notes
+notes.txt
+tests\test_integration.py

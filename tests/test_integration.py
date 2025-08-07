@@ -1,3 +1,6 @@
+import sys
+import os
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../src')))
 import email.mime.text
 import logging
 from unittest.mock import MagicMock, Mock, patch
@@ -265,6 +268,8 @@ def test_copy_preserves_custom_labels(setup_mailboxes):
         "--target", TARGET,
         "--credentials-source", CRED_SOURCE,
         "--credentials-target", CRED_TARGET,
+        "--token-source", TOKEN_SOURCE,
+        "--token-target", TOKEN_TARGET,
     ]
     result = runner.invoke(app, args)
     assert result.exit_code == 0, result.output
@@ -348,6 +353,8 @@ def test_copy_and_compare_real_accounts(setup_mailboxes):
         "--target", TARGET,
         "--credentials-source", CRED_SOURCE,
         "--credentials-target", CRED_TARGET,
+        "--token-source", TOKEN_SOURCE,
+        "--token-target", TOKEN_TARGET,
     ]
     result = runner.invoke(app, args)
     assert result.exit_code == 0, result.output
@@ -359,6 +366,8 @@ def test_copy_and_compare_real_accounts(setup_mailboxes):
         "--target", TARGET,
         "--credentials-source", CRED_SOURCE,
         "--credentials-target", CRED_TARGET,
+        "--token-source", TOKEN_SOURCE,
+        "--token-target", TOKEN_TARGET,
     ]
     result = runner.invoke(app, args)
     assert result.exit_code == 0, result.output
@@ -419,6 +428,8 @@ def test_copy_and_compare_date_filter(setup_mailboxes):
         "--target", TARGET,
         "--credentials-source", CRED_SOURCE,
         "--credentials-target", CRED_TARGET,
+        "--token-source", TOKEN_SOURCE,
+        "--token-target", TOKEN_TARGET,
         "--after", after_date,
     ]
     result = runner.invoke(app, args)
@@ -431,6 +442,8 @@ def test_copy_and_compare_date_filter(setup_mailboxes):
         "--target", TARGET,
         "--credentials-source", CRED_SOURCE,
         "--credentials-target", CRED_TARGET,
+        "--token-source", TOKEN_SOURCE,
+        "--token-target", TOKEN_TARGET,
         "--after", after_date,
     ]
     result = runner.invoke(app, args)
@@ -492,6 +505,7 @@ def test_delete_duplicates_content_based(setup_mailboxes):
         "delete-duplicates",
         "--account", SOURCE,
         "--credentials", CRED_SOURCE,
+        "--token", TOKEN_SOURCE,
     ]
     result = runner.invoke(app, args)
     print(f"[DEBUG] CLI command output: {result.output}")
