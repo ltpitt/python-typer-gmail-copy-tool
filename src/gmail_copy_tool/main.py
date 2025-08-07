@@ -1,8 +1,16 @@
 import typer
-from gmail_copy_tool.commands import analyze
+
+from gmail_copy_tool.commands.analyze import analyze
+from gmail_copy_tool.commands.compare import compare
+from gmail_copy_tool.commands.copy import copy
+from gmail_copy_tool.commands.delete_duplicates import delete_duplicates
+
 
 app = typer.Typer()
-app.add_typer(analyze.app, name="analyze")
+app.command()(analyze)
+app.command()(compare)
+app.command()(copy)
+app.command()(delete_duplicates)
 
 @app.command()
 def hello():
@@ -35,4 +43,6 @@ if __name__ == "__main__":
         level=logging.INFO,
         format="%(asctime)s %(levelname)s %(name)s: %(message)s"
     )
+    # Suppress googleapiclient.discovery_cache INFO logs
+    logging.getLogger("googleapiclient.discovery_cache").setLevel(logging.WARNING)
     app()
