@@ -19,7 +19,8 @@ def copy(
     credentials_target: str = typer.Option("credentials_target.json", help="Path to target account credentials file (default: credentials_target.json)"),
     label: str = typer.Option(None, help="Copy only emails with this Gmail label"),
     after: str = typer.Option(None, help="Copy emails after this date (YYYY-MM-DD)"),
-    before: str = typer.Option(None, help="Copy emails before this date (YYYY-MM-DD)")
+    before: str = typer.Option(None, help="Copy emails before this date (YYYY-MM-DD)"),
+    checkpoint: str = typer.Option(None, help="Path to checkpoint file for resume support (optional)")
 ):
     """Copy all emails from the source account to the target account."""
     # Enable debug logging if GMAIL_COPY_TOOL_DEBUG=1
@@ -59,12 +60,20 @@ def copy(
         logger.debug(f"Target account argument: {target}")
         logger.debug(f"Target credentials email: {target_email}")
 
+
         # Fetch all message IDs from source (with optional filters)
         source_ids = _get_all_message_ids(source_client, label=label, after=after, before=before)
         typer.echo(f"Total emails to copy: {len(source_ids)}")
         logger.debug(f"Fetched {len(source_ids)} message IDs from source.")
         if debug_mode:
             logger.debug(f"Source message IDs: {source_ids}")
+
+        # --- Checkpoint logic ---
+        if checkpoint:
+            from gmail_copy_tool.utils.checkpoint import Checkpoint
+            cp = Checkpoint(checkpoint)
+        else:
+            cp = None
 
         # Fetch all Message-ID headers from target account for deduplication
         logger.info("Fetching Message-ID headers from target account for deduplication...")
@@ -142,12 +151,19 @@ def copy(
                     logger.debug(f"Source message {msg_id} labelIds: {src_label_ids}")
                     logger.info(f"Source message {msg_id}: subject={src_subject}, Message-ID={src_msgid}, labelIds={src_label_ids}")
 
-                    # Deduplication check
-                    if src_msgid and src_msgid in target_msgids:
-                        logger.info(f"Skipping message {msg_id} (Message-ID: {src_msgid}) - already exists in target.")
+                    # Resume/skip logic: skip if already copied in checkpoint
+                    if cp and src_msgid and cp.is_copied(src_msgid):
+                        logger.info(f"Skipping message {msg_id} (Message-ID: {src_msgid}) - already marked as copied in checkpoint.")
                         progress.update(task, advance=1)
                         continue
 
+                    # Deduplication check
+                    if src_msgid and src_msgid in target_msgids:
+                        logger.info(f"Skipping message {msg_id} (Message-ID: {src_msgid}) - already exists in target.")
+                        if cp and src_msgid:
+                            cp.mark_copied(src_msgid)
+                        progress.update(task, advance=1)
+                        continue
 
                     # Fetch raw message for copying
                     message = source_client.service.users().messages().get(userId="me", id=msg_id, format="raw").execute()
@@ -163,6 +179,10 @@ def copy(
                     response = target_client.service.users().messages().insert(userId="me", body={"raw": src_raw_b64}).execute()
                     logger.debug(f"Insert response for {msg_id}: {response}")
                     copied_count += 1
+
+                    # Mark as copied in checkpoint after successful copy
+                    if cp and src_msgid:
+                        cp.mark_copied(src_msgid)
 
                     # Fetch and log the raw MIME of the inserted message in the target
                     tgt_msg_id = response.get('id')
