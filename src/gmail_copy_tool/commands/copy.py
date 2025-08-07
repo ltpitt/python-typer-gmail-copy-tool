@@ -148,12 +148,36 @@ def copy(
                         progress.update(task, advance=1)
                         continue
 
+
                     # Fetch raw message for copying
                     message = source_client.service.users().messages().get(userId="me", id=msg_id, format="raw").execute()
-                    logger.debug(f"Source message {msg_id} raw: {message.get('raw', '')[:100]}...")
-                    response = target_client.service.users().messages().insert(userId="me", body={"raw": message["raw"]}).execute()
+                    src_raw_b64 = message.get('raw', '')
+                    logger.debug(f"Source message {msg_id} raw (base64, first 200 chars): {src_raw_b64[:200]}...")
+                    try:
+                        import base64
+                        src_raw_bytes = base64.urlsafe_b64decode(src_raw_b64.encode('utf-8'))
+                        logger.debug(f"Source message {msg_id} raw (decoded, first 500 chars): {src_raw_bytes[:500]!r}...")
+                    except Exception as e:
+                        logger.warning(f"Could not decode source raw for {msg_id}: {e}")
+
+                    response = target_client.service.users().messages().insert(userId="me", body={"raw": src_raw_b64}).execute()
                     logger.debug(f"Insert response for {msg_id}: {response}")
                     copied_count += 1
+
+                    # Fetch and log the raw MIME of the inserted message in the target
+                    tgt_msg_id = response.get('id')
+                    if tgt_msg_id:
+                        try:
+                            tgt_raw_msg = target_client.service.users().messages().get(userId="me", id=tgt_msg_id, format="raw").execute()
+                            tgt_raw_b64 = tgt_raw_msg.get('raw', '')
+                            logger.debug(f"Target message {tgt_msg_id} raw (base64, first 200 chars): {tgt_raw_b64[:200]}...")
+                            try:
+                                tgt_raw_bytes = base64.urlsafe_b64decode(tgt_raw_b64.encode('utf-8'))
+                                logger.debug(f"Target message {tgt_msg_id} raw (decoded, first 500 chars): {tgt_raw_bytes[:500]!r}...")
+                            except Exception as e:
+                                logger.warning(f"Could not decode target raw for {tgt_msg_id}: {e}")
+                        except Exception as e:
+                            logger.warning(f"Could not fetch target raw for {tgt_msg_id}: {e}")
 
                     # Assign labels in target
                     tgt_msg_id = response.get('id')

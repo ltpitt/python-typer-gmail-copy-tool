@@ -51,17 +51,20 @@ def normalize_date(date_str):
         pass
     raise ValueError(f"Invalid date format: {date_str}")
 
-def get_canonical_hash(client, msg_id):
+
+
+def compute_canonical_hash_from_gmailclient(client, msg_id):
+    """Compute a canonical hash for a Gmail message, ignoring headers known to be rewritten by Gmail."""
     try:
         msg = client.service.users().messages().get(userId="me", id=msg_id, format="raw").execute()
         raw = msg.get("raw")
         if not raw:
-            logging.getLogger(__name__).warning(f"No raw data for message {msg_id}")
-            return None
+            return None, None
         raw_bytes = base64.urlsafe_b64decode(raw.encode("utf-8"))
         parsed = email.message_from_bytes(raw_bytes)
         headers = []
         for k, v in sorted(parsed.items()):
+            # Optionally skip headers like 'Received', 'Message-Id', 'Date' if needed
             headers.append(f"{k.lower().strip()}: {v.strip()}")
         body_parts = []
         if parsed.is_multipart():
@@ -78,16 +81,15 @@ def get_canonical_hash(client, msg_id):
             body_parts.append(f"{ctype}|{hashlib.sha256(payload).hexdigest()}")
         canonical = "\n".join(headers + body_parts)
         hash_val = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
-        logging.getLogger(__name__).debug(f"[HASH DEBUG] msg_id={msg_id}\nCanonical string:\n{canonical}\nHash: {hash_val}")
-        return hash_val
+        return hash_val, parsed
     except Exception as e:
         logging.getLogger(__name__).error(f"Failed to get canonical hash for {msg_id}: {e}")
-        return None
+        return None, None
 
-def build_hash_to_id(client, ids):
+def build_canonical_hash_to_id(client, ids):
     mapping = {}
     for msg_id in ids:
-        h = get_canonical_hash(client, msg_id)
+        h, _ = compute_canonical_hash_from_gmailclient(client, msg_id)
         if h:
             mapping[h] = msg_id
     return mapping
@@ -131,6 +133,8 @@ def get_all_message_ids(client, label=None, after=None, before=None):
             break
     logger.info(f"[get_all_message_ids] Found {len(message_ids)} message IDs: {message_ids}")
     return message_ids
+
+
 @app.command()
 def compare(
     source: str = typer.Option(..., help="Source Gmail account email address"),
@@ -161,16 +165,17 @@ def compare(
     logger.debug("Fetching all message IDs for target...")
     target_ids_list = get_all_message_ids(target_client, label=label, after=after, before=before)
     logger.debug(f"Target IDs: {target_ids_list}")
-    logger.debug("Building hash-to-id map for source...")
-    source_hash_to_id = build_hash_to_id(source_client, source_ids_list)
-    logger.debug(f"Source hash-to-id: {source_hash_to_id}")
-    logger.debug("Building hash-to-id map for target...")
-    target_hash_to_id = build_hash_to_id(target_client, target_ids_list)
-    logger.debug(f"Target hash-to-id: {target_hash_to_id}")
+
+    logger.debug("Building canonical hash-to-id map for source...")
+    source_hash_to_id = build_canonical_hash_to_id(source_client, source_ids_list)
+    logger.debug(f"Source canonical hash-to-id: {source_hash_to_id}")
+    logger.debug("Building canonical hash-to-id map for target...")
+    target_hash_to_id = build_canonical_hash_to_id(target_client, target_ids_list)
+    logger.debug(f"Target canonical hash-to-id: {target_hash_to_id}")
     source_hashes = set(source_hash_to_id.keys())
     target_hashes = set(target_hash_to_id.keys())
-    logger.debug(f"Source hashes: {source_hashes}")
-    logger.debug(f"Target hashes: {target_hashes}")
+    logger.debug(f"Source canonical hashes: {source_hashes}")
+    logger.debug(f"Target canonical hashes: {target_hashes}")
     missing_in_target = source_hashes - target_hashes
     extra_in_target = target_hashes - source_hashes
     logger.debug(f"Missing in target: {missing_in_target}")
