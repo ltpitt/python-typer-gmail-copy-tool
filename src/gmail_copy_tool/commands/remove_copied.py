@@ -1,11 +1,8 @@
-
 import typer
 import logging
 import sys
-import base64
-import email
-import hashlib
 from gmail_copy_tool.core.gmail_client import GmailClient
+from gmail_copy_tool.utils.canonicalization import compute_canonical_hash
 
 app = typer.Typer()
 logger = logging.getLogger(__name__)
@@ -14,41 +11,6 @@ logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     handlers=[logging.StreamHandler(sys.stdout)]
 )
-
-def compute_canonical_hash_from_gmailclient(client, msg_id):
-    try:
-        msg = client.service.users().messages().get(userId="me", id=msg_id, format="raw").execute()
-        raw = msg.get("raw")
-        if not raw:
-            return None
-        raw_bytes = base64.urlsafe_b64decode(raw.encode("utf-8"))
-        parsed = email.message_from_bytes(raw_bytes)
-        # Only include key headers for canonicalization
-        key_headers = ["from", "to", "subject", "date", "message-id"]
-        headers = []
-        for k, v in sorted(parsed.items()):
-            k_lower = k.lower().strip()
-            if k_lower in key_headers:
-                headers.append(f"{k_lower}: {v.strip()}")
-        body_parts = []
-        if parsed.is_multipart():
-            for part in parsed.walk():
-                if part.is_multipart():
-                    continue
-                payload = part.get_payload(decode=True) or b""
-                ctype = part.get_content_type()
-                fname = part.get_filename() or ""
-                body_parts.append(f"{ctype}|{fname}|{hashlib.sha256(payload).hexdigest()}")
-        else:
-            payload = parsed.get_payload(decode=True) or b""
-            ctype = parsed.get_content_type()
-            body_parts.append(f"{ctype}|{hashlib.sha256(payload).hexdigest()}")
-        canonical = "\n".join(headers + body_parts)
-        hash_val = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
-        return hash_val
-    except Exception as e:
-        logger.error(f"Failed to get canonical hash for {msg_id}: {e}")
-        return None
 
 def get_all_message_ids(client):
     service = client.service
@@ -90,14 +52,14 @@ def remove_copied(
     logger.info("Building canonical hash set for target account...")
     target_hashes = set()
     for msg_id in target_ids:
-        h = compute_canonical_hash_from_gmailclient(target_client, msg_id)
+        h = compute_canonical_hash(target_client, msg_id)
         if h:
             target_hashes.add(h)
     logger.info(f"Target account has {len(target_hashes)} unique canonical hashes.")
     logger.info("Checking source messages for removal...")
     removed_count = 0
     for msg_id in source_ids:
-        h = compute_canonical_hash_from_gmailclient(source_client, msg_id)
+        h = compute_canonical_hash(source_client, msg_id)
         if h and h in target_hashes:
             try:
                 source_client.service.users().messages().delete(userId="me", id=msg_id).execute()

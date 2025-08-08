@@ -1,4 +1,5 @@
 import typer
+import os 
 
 from gmail_copy_tool.commands.analyze import analyze
 from gmail_copy_tool.commands.compare import compare
@@ -40,7 +41,27 @@ How to obtain credentials.json for Gmail API access:
 This file allows your app to request user authorization for Gmail access.
 """)
 
+
+def check_and_fix_tokens():
+    source_token = "token_sangennaroarchivio3_gmail.com.json"
+    target_token = "token_sangennaroarchivio4_gmail.com.json"
+
+    if not os.path.exists(source_token):
+        print(f"[INFO] Source token {source_token} is missing. Running delete-duplicates to fix.")
+        delete_duplicates(
+            account="sangennaroarchivio3@gmail.com",
+            credentials="credentials_source.json"
+        )
+
+    if not os.path.exists(target_token):
+        print(f"[INFO] Target token {target_token} is missing. Running delete-duplicates to fix.")
+        delete_duplicates(
+            account="sangennaroarchivio4@gmail.com",
+            credentials="credentials_target.json"
+        )
+
 if __name__ == "__main__":
+    check_and_fix_tokens
     import logging
     logging.basicConfig(
         level=logging.INFO,

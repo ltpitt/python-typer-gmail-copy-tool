@@ -30,13 +30,14 @@ def copy(
     if debug_mode:
         logging.getLogger().setLevel(logging.DEBUG)
         logger.debug("Debug mode enabled.")
+    else:
+        logging.getLogger().setLevel(logging.INFO)
+        logger.info("Debug mode disabled.")
 
     typer.echo(f"Copying emails: {source} -> {target}")
 
     try:
-        typer.secho("[ACTION REQUIRED] Please enter authentication data for the SOURCE account.", fg=typer.colors.BLUE, bold=True)
         source_client = GmailClient(source, credentials_path=credentials_source, token_path=token_source, scope="readonly")
-        typer.secho("[ACTION REQUIRED] Please enter authentication data for the TARGET account.", fg=typer.colors.BLUE, bold=True)
         target_client = GmailClient(target, credentials_path=credentials_target, token_path=token_target, scope="mail.google.com")
 
         # Fetch all message IDs from source (with optional filters)

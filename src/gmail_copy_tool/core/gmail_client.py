@@ -15,21 +15,28 @@ from rich.progress import Progress
 SCOPES_READONLY = ["https://www.googleapis.com/auth/gmail.readonly"]
 SCOPES_MODIFY = ["https://www.googleapis.com/auth/gmail.modify"]
 
+# Always use high-permission scopes
+SCOPES_HIGH_PERMISSION = ["https://mail.google.com/"]
+
 
 logger = logging.getLogger(__name__)
-debug_mode = os.environ.get("GMAIL_COPY_TOOL_DEBUG", "0") == "1" or os.environ.get("PYTEST_CURRENT_TEST")
-if debug_mode:
+# Refine debug mode logic to avoid unintended activation
+explicit_debug_mode = os.environ.get("GMAIL_COPY_TOOL_DEBUG", "0") == "1"
+if explicit_debug_mode:
     logging.getLogger().setLevel(logging.DEBUG)
     logging.getLogger("googleapiclient.discovery").setLevel(logging.DEBUG)
     logging.getLogger("googleapiclient.discovery_cache").setLevel(logging.INFO)
     logging.getLogger("requests_oauthlib").setLevel(logging.DEBUG)
     logging.getLogger("urllib3").setLevel(logging.DEBUG)
 else:
-    logging.getLogger().setLevel(logging.WARNING)
+    logging.getLogger().setLevel(logging.INFO)  # Default to INFO for non-debug mode
     logging.getLogger("googleapiclient.discovery").setLevel(logging.WARNING)
     logging.getLogger("googleapiclient.discovery_cache").setLevel(logging.WARNING)
     logging.getLogger("requests_oauthlib").setLevel(logging.WARNING)
     logging.getLogger("urllib3").setLevel(logging.WARNING)
+
+# Log the debug mode status for verification
+logger.info(f"Debug mode is {'enabled' if explicit_debug_mode else 'disabled'} based on GMAIL_COPY_TOOL_DEBUG={os.environ.get('GMAIL_COPY_TOOL_DEBUG', '0')}")
 
 class GmailClient:
     """Gmail API client for authentication and mailbox operations."""
@@ -46,13 +53,8 @@ class GmailClient:
         try:
             logger.debug(f"Authenticating Gmail account: {self.account}")
             creds = None
-            # Choose scope based on self.scope
-            if self.scope == "readonly":
-                scopes = SCOPES_READONLY
-            elif self.scope == "mail.google.com":
-                scopes = ["https://mail.google.com/"]
-            else:
-                scopes = SCOPES_MODIFY
+            # Enforce high-permission scopes
+            scopes = SCOPES_HIGH_PERMISSION
             if os.path.exists(self.token_path):
                 logger.debug(f"Loading credentials from token file: {self.token_path}")
                 creds = Credentials.from_authorized_user_file(self.token_path, scopes)
