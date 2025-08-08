@@ -4,11 +4,7 @@ import logging
 logger = logging.getLogger(__name__)
 
 def send_with_backoff(send_func, max_retries=5, initial_delay=2, *args, **kwargs):
-    """
-    Call a Gmail API send function with exponential backoff and Retry-After support.
-    send_func: function to call (e.g., service.users().messages().send(...).execute)
-    *args, **kwargs: arguments to pass to send_func
-    """
+    """Send Gmail API request with exponential backoff."""
     delay = initial_delay
     for attempt in range(max_retries):
         try:
@@ -58,9 +54,6 @@ def send_with_backoff(send_func, max_retries=5, initial_delay=2, *args, **kwargs
                 next_time = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(now + wait_seconds))
                 msg = f"Rate limit hit when sending email. "
                 if retry_after:
-                    google_time = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(now + int(retry_after)))
-                    msg += (f"Google suggests retry after {retry_after} seconds (at {google_time}). ")
-                elif retry_after_utc:
                     msg += f"Google suggests retry at {retry_after_utc} UTC. "
                 else:
                     msg += "No Retry-After header or retry time present from Google. "

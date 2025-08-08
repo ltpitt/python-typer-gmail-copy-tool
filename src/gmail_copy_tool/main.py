@@ -17,12 +17,12 @@ app.command()(remove_copied)
 
 @app.command()
 def hello():
-    """Say hello!"""
+    """Print a hello message."""
     print("Hello from gmail-copy-tool!")
     
 @app.command()
 def credentials_help():
-    """Show instructions for obtaining credentials.json for Gmail API access."""
+    """Show how to obtain Gmail API credentials.json."""
     typer.echo("""
 How to obtain credentials.json for Gmail API access:
 

@@ -24,7 +24,7 @@ def copy(
     before: str = typer.Option(None, help="Copy emails before this date (YYYY-MM-DD)"),
     checkpoint: str = typer.Option(None, help="Path to checkpoint file for resume support (optional)")
 ):
-    """Copy all emails from the source account to the target account."""
+    """Copy all emails from source to target Gmail account."""
     # Enable debug logging if GMAIL_COPY_TOOL_DEBUG=1
     debug_mode = os.environ.get("GMAIL_COPY_TOOL_DEBUG", "0") == "1"
     if debug_mode:

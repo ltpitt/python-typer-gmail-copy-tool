@@ -77,7 +77,7 @@ def remove_copied(
     token_source: str = typer.Option(None, help="Path to OAuth token file for source account (optional)"),
     token_target: str = typer.Option(None, help="Path to OAuth token file for target account (optional)")
 ):
-    """Remove from the source account all emails that are present in the target account (based on canonical hash comparison)."""
+    """Delete from source all emails present in target (by canonical hash)."""
     logger.info(f"Connecting to source ({source}) and target ({target}) accounts...")
     source_client = GmailClient(source, credentials_source, token_source)
     target_client = GmailClient(target, credentials_target, token_target)

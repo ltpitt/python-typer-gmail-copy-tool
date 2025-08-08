@@ -13,7 +13,7 @@ def analyze(
     before: str = typer.Option(None, help="Count emails before this date (YYYY-MM-DD)"),
     label: str = typer.Option(None, help="Count emails with this Gmail label")
 ):
-    """Analyze a Gmail account and count emails, optionally filtered by date or label."""
+    """Count emails in a Gmail account. Supports filters by date and label."""
     import os, logging
     debug_mode = os.environ.get("GMAIL_COPY_TOOL_DEBUG", "0") == "1"
     if not debug_mode:

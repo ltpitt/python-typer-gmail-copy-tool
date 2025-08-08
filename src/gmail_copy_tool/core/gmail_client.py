@@ -32,6 +32,7 @@ else:
     logging.getLogger("urllib3").setLevel(logging.WARNING)
 
 class GmailClient:
+    """Gmail API client for authentication and mailbox operations."""
 
     def __init__(self, account: str, credentials_path: str = "credentials.json", token_path: str = None, scope: str = "readonly"):
         self.account = account
@@ -41,6 +42,7 @@ class GmailClient:
         self.service = self.authenticate()
 
     def authenticate(self):
+        """Authenticate with Gmail API using OAuth2."""
         try:
             logger.debug(f"Authenticating Gmail account: {self.account}")
             creds = None
@@ -93,12 +95,7 @@ class GmailClient:
             raise typer.Exit(code=1)
 
     def count_emails(self, after=None, before=None, label=None, credentials_path=None):
-        """
-        Count emails with optional filters:
-        - after: YYYY-MM-DD
-        - before: YYYY-MM-DD
-        - label: Gmail label name
-        """
+        """Return the number of emails, optionally filtered by date or label."""
         total = 0
         page_token = None
         query = ""

@@ -1,32 +1,36 @@
-# python-typer-gmail-copy-tool
+## 🧾 Esempio di Configurazione Test
 
-Questo strumento da riga di comando (CLI), scritto in Python, permette di copiare le email da un account Gmail a un altro e verifica automaticamente il risultato della copia.
+Un file di esempio (`tests/test_config_example.json`) è fornito per aiutare gli utenti a eseguire test di integrazione e automatizzare i comandi CLI.
 
-È possibile eseguire il comando con l’opzione `--help` per capire come funziona.
+**Campi:**
+- `source_account`: indirizzo Gmail sorgente
+- `target_account`: indirizzo Gmail destinazione
+- `source_token`: file token OAuth per la sorgente
+- `target_token`: file token OAuth per la destinazione
+- `source_credentials`: file credenziali per la sorgente
+- `target_credentials`: file credenziali per la destinazione
+- `label`: (opzionale) etichetta Gmail da filtrare
+- `after`: (opzionale) solo email dopo questa data (YYYY-MM-DD)
+- `before`: (opzionale) solo email prima di questa data (YYYY-MM-DD)
 
-Lo strumento è costruito utilizzando Python Typer.
+**Utilizzo:**
+- Modifica i campi in base ai tuoi account Gmail e file token/credenziali.
+- Dopo la modifica, rinomina il file in `tests/test_config.json` per eseguire i test di integrazione. Il runner dei test userà solo `test_config.json`.
 
-È possibile eseguire un’analisi su un account Gmail di destinazione per capire quante email sono presenti in totale.
-
-È anche possibile copiare tutte le email da un account Gmail sorgente a uno di destinazione.
-
-La copia garantisce che tutte le email e gli altri dati (allegati, ecc.) vengano trasferiti correttamente dall’account sorgente a quello di destinazione.
-
-Il meccanismo di copia è in grado di riprendere in modo intelligente: se una copia viene interrotta, può continuare automaticamente dal punto di interruzione, evitando di ricopiare tutto da capo.
-
-Lo strumento, al termine della copia, è in grado di eseguire un confronto per confermare che tutte le email presenti nell’account sorgente siano anche presenti nell’account di destinazione.
-
-È anche possibile eseguire il confronto in modo indipendente, come funzione specifica dello strumento (ad esempio, confrontare solo un account Gmail sorgente con uno di destinazione).
-
-Lo strumento include inoltre una funzionalità che consente di eliminare dall’account Gmail sorgente tutte le email che sono già presenti nell’account di destinazione.
-
-
-
-
-
-
-
-
+**Esempio:**
+```json
+{
+  "source_account": "source@gmail.com",
+  "target_account": "target@gmail.com",
+  "source_token": "token_source.json",
+  "target_token": "token_target.json",
+  "source_credentials": "credentials_source.json",
+  "target_credentials": "credentials_target.json",
+  "label": null,
+  "after": null,
+  "before": null
+}
+```
 # python-typer-gmail-copy-tool
 
 Uno strumento da riga di comando (CLI) costruito con [Typer](https://typer.tiangolo.com/) che consente di analizzare, copiare, confrontare e ripulire le email tra account Gmail. Progettato per essere affidabile, riprendere automaticamente in caso di interruzioni e garantire l'integrità dei dati.

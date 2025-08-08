@@ -1,3 +1,36 @@
+## 🧾 Example Test Config
+
+An example config file (`tests/test_config_example.json`) is provided to help users run integration tests and automate CLI commands.
+
+**Fields:**
+- `source_account`: Gmail address to copy from
+- `target_account`: Gmail address to copy to
+- `source_token`: OAuth token file for source
+- `target_token`: OAuth token file for target
+- `source_credentials`: Credentials file for source
+- `target_credentials`: Credentials file for target
+- `label`: (optional) Gmail label to filter
+- `after`: (optional) Only emails after this date (YYYY-MM-DD)
+- `before`: (optional) Only emails before this date (YYYY-MM-DD)
+
+**Usage:**
+- Edit the fields to match your Gmail accounts and token/credential files.
+- After editing, rename the file to `tests/test_config.json` to run integration tests. The test runner will only use `test_config.json`.
+
+**Example:**
+```json
+{
+  "source_account": "source@gmail.com",
+  "target_account": "target@gmail.com",
+  "source_token": "token_source.json",
+  "target_token": "token_target.json",
+  "source_credentials": "credentials_source.json",
+  "target_credentials": "credentials_target.json",
+  "label": null,
+  "after": null,
+  "before": null
+}
+```
 # python-typer-gmail-copy-tool
 
 A CLI tool built with [Typer](https://typer.tiangolo.com/) that allows you to analyze, copy, compare, and clean emails between Gmail accounts. Designed for reliability, resumability, and data integrity.

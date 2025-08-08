@@ -2,7 +2,7 @@ import time
 import functools
 
 def timing(func):
-    """Decorator to measure and print the execution time of a function."""
+    """Decorator to print execution time of a function."""
     @functools.wraps(func)
     def wrapper(*args, **kwargs):
         start = time.perf_counter()

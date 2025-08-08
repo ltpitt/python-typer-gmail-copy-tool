@@ -134,7 +134,7 @@ def compare(
     after: str = typer.Option(None, help="Compare emails after this date (YYYY-MM-DD)"),
     before: str = typer.Option(None, help="Compare emails before this date (YYYY-MM-DD)")
 ):
-    """Compare source and target Gmail accounts to verify all emails have been copied (hash-based, GUI style)."""
+    """Compare source and target accounts. Verifies all emails are copied (hash-based)."""
     debug_mode = os.environ.get("GMAIL_COPY_TOOL_DEBUG", "0") == "1"
     logger = logging.getLogger(__name__)
     if debug_mode:

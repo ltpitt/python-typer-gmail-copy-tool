@@ -23,7 +23,7 @@ def delete_duplicates(
     credentials: str = typer.Option(..., help="Path to OAuth client credentials JSON file"),
     token: str = typer.Option(None, help="Path to OAuth token file (optional)"),
 ):
-    """Delete duplicate emails in the specified Gmail account."""
+    """Delete duplicate emails in a Gmail account."""
     client = GmailClient(account, credentials, token, scope="mail.google.com")
     service = client.service
     user_id = 'me'
