@@ -4,6 +4,8 @@ from rich import print
 from gmail_copy_tool.core.gmail_client import GmailClient
 import logging
 import sys
+import os  # Import os module to remove the token file
+import hashlib
 
 app = typer.Typer()
 logger = logging.getLogger(__name__)
@@ -17,6 +19,50 @@ logging.basicConfig(
     ]
 )
 
+
+def compute_content_hash(subject, body):
+    content = f"{subject}{body}".encode('utf-8')
+    return hashlib.sha256(content).hexdigest()
+
+
+def fetch_all_emails_by_content_hash(service, user_id):
+    """
+    Fetch all emails for the user and group them by a hash of their content (subject + body).
+    Returns:
+        dict: A dictionary where keys are content hashes and values are lists of email IDs.
+    """
+    ids = {}
+    page_token = None
+    total_emails = 0
+    logger.info("Starting to fetch emails grouped by content hash...")
+    while True:
+        try:
+            logger.debug(f"Fetching emails with page_token: {page_token}")
+            results = service.users().messages().list(userId=user_id, pageToken=page_token, includeSpamTrash=False).execute()
+            messages = results.get('messages', [])
+            logger.debug(f"Fetched {len(messages)} emails in this batch")
+            total_emails += len(messages)
+            for msg in messages:
+                msg_meta = service.users().messages().get(userId=user_id, id=msg['id'], format='full').execute()
+                msg_id = msg['id']
+                headers = msg_meta.get('payload', {}).get('headers', [])
+                subject = next((h['value'] for h in headers if h['name'].lower() == 'subject'), '')
+                body = msg_meta.get('snippet', '')
+                content_hash = compute_content_hash(subject, body)
+                ids.setdefault(content_hash, []).append(msg_id)
+                logger.debug(f"Grouped email ID {msg_id} under content hash {content_hash} (Subject: {subject}, Body Snippet: {body[:50]})")
+        except Exception as e:
+            logger.error(f"Error fetching messages: {e}")
+            break
+        page_token = results.get('nextPageToken')
+        logger.debug(f"Next page_token: {page_token}")
+        if not page_token:
+            logger.info("No more pages to fetch.")
+            break
+    logger.info(f"Total emails fetched: {total_emails}")
+    return ids
+
+
 @app.command()
 def delete_duplicates(
     account: str = typer.Option(..., help="Email account to delete duplicate emails from"),
@@ -28,53 +74,15 @@ def delete_duplicates(
     service = client.service
     user_id = 'me'
 
-    def fetch_all_emails_by_content_hash():
-        """
-        Fetch all emails for the user and group them by a hash of their content (subject + body).
-        Returns:
-            dict: A dictionary where keys are content hashes and values are lists of email IDs.
-        """
-        import hashlib
-
-        def compute_content_hash(subject, body):
-            content = f"{subject}{body}".encode('utf-8')
-            return hashlib.sha256(content).hexdigest()
-
-        ids = {}
-        page_token = None
-        total_emails = 0
-        logger.info("Starting to fetch emails grouped by content hash...")
-        while True:
-            # Removed failsafe mechanism
-            try:
-                logger.debug(f"Fetching emails with page_token: {page_token}")
-                results = service.users().messages().list(userId=user_id, pageToken=page_token, includeSpamTrash=False).execute()
-                messages = results.get('messages', [])
-                logger.debug(f"Fetched {len(messages)} emails in this batch")
-                total_emails += len(messages)
-                for msg in messages:
-                    msg_meta = service.users().messages().get(userId=user_id, id=msg['id'], format='full').execute()
-                    msg_id = msg['id']
-                    headers = msg_meta.get('payload', {}).get('headers', [])
-                    subject = next((h['value'] for h in headers if h['name'].lower() == 'subject'), '')
-                    body = msg_meta.get('snippet', '')
-                    content_hash = compute_content_hash(subject, body)
-                    ids.setdefault(content_hash, []).append(msg_id)
-                    logger.debug(f"Grouped email ID {msg_id} under content hash {content_hash}")
-            except Exception as e:
-                logger.error(f"Error fetching messages: {e}")
-                break
-            page_token = results.get('nextPageToken')
-            logger.debug(f"Next page_token: {page_token}")
-            if not page_token:
-                logger.info("No more pages to fetch.")
-                break
-        logger.info(f"Total emails fetched: {total_emails}")
-        return ids
+    # Enable debug logging if GMAIL_COPY_TOOL_DEBUG=1
+    debug_mode = os.environ.get("GMAIL_COPY_TOOL_DEBUG", "0") == "1"
+    if debug_mode:
+        logging.getLogger().setLevel(logging.DEBUG)
+        logger.debug("Debug mode enabled.")
 
     try:
         logger.info("Starting duplicate deletion process...")
-        duplicates = fetch_all_emails_by_content_hash()
+        duplicates = fetch_all_emails_by_content_hash(service, user_id)
         logger.info(f"Fetched {len(duplicates)} content hash groups")
         for content_hash, msg_ids in duplicates.items():
             logger.debug(f"Processing content hash: {content_hash}, Email IDs: {msg_ids}")

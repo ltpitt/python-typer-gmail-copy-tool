@@ -30,7 +30,9 @@ def copy(
     if debug_mode:
         logging.getLogger().setLevel(logging.DEBUG)
         logger.debug("Debug mode enabled.")
+
     typer.echo(f"Copying emails: {source} -> {target}")
+
     try:
         typer.secho("[ACTION REQUIRED] Please enter authentication data for the SOURCE account.", fg=typer.colors.BLUE, bold=True)
         source_client = GmailClient(source, credentials_path=credentials_source, token_path=token_source, scope="readonly")
@@ -175,8 +177,8 @@ def copy(
                                     break
                         except Exception:
                             pass
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.error(f"Failed to copy email ID {msg_id}: {e}")
                 progress.update(task, advance=1)
             progress.update(task, completed=len(source_ids))
         print()  # Add a blank line for separation
@@ -203,6 +205,24 @@ def copy(
         import sys; sys.stdout.flush(); sys.stderr.flush()
 
 
+
+def normalize_date(date_str):
+    # Accept YYYY-MM-DD or YYYY/MM/DD, output YYYY/MM/DD
+    if not date_str:
+        return None
+    if re.match(r"^\d{4}/\d{2}/\d{2}$", date_str):
+        return date_str
+    if re.match(r"^\d{4}-\d{2}-\d{2}$", date_str):
+        return date_str.replace("-", "/")
+    # Try to parse RFC 2822 and convert to YYYY/MM/DD
+    try:
+        dt = datetime.strptime(date_str, "%a, %d %b %Y %H:%M:%S %z")
+        return dt.strftime("%Y/%m/%d")
+    except Exception:
+        pass
+    return date_str
+
+
 def _get_all_message_ids(client, label=None, after=None, before=None):
     """Fetch all message IDs from a GmailClient with optional filters."""
     service = client.service
@@ -210,21 +230,6 @@ def _get_all_message_ids(client, label=None, after=None, before=None):
     message_ids = []
     page_token = None
     query = ""
-    def normalize_date(date_str):
-        # Accept YYYY-MM-DD or YYYY/MM/DD, output YYYY/MM/DD
-        if not date_str:
-            return None
-        if re.match(r"^\d{4}/\d{2}/\d{2}$", date_str):
-            return date_str
-        if re.match(r"^\d{4}-\d{2}-\d{2}$", date_str):
-            return date_str.replace("-", "/")
-        # Try to parse RFC 2822 and convert to YYYY/MM/DD
-        try:
-            dt = datetime.strptime(date_str, "%a, %d %b %Y %H:%M:%S %z")
-            return dt.strftime("%Y/%m/%d")
-        except Exception:
-            pass
-        return date_str
 
     if after:
         after_norm = normalize_date(after)
@@ -237,6 +242,7 @@ def _get_all_message_ids(client, label=None, after=None, before=None):
         label_ids = [label]
     else:
         label_ids = None
+
     while True:
         try:
             results = service.users().messages().list(

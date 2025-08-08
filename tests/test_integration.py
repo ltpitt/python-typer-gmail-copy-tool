@@ -111,7 +111,7 @@ def test_remove_copied_command(setup_mailboxes):
     assert result.exit_code == 0, result.output
 
     # Wait for Gmail to process deletions
-    time.sleep(15)
+    time.sleep(5)
 
     # Assert using canonical hashes: only extra emails remain in source
     creds_source = Credentials.from_authorized_user_file(TOKEN_SOURCE)
