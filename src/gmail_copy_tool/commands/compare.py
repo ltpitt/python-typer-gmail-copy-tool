@@ -1,7 +1,8 @@
-
-
 import os
-import re
+import logging
+import base64
+import email
+import os
 import logging
 import base64
 import email
@@ -9,21 +10,17 @@ import hashlib
 from datetime import datetime
 
 import typer
-from rich.align import Align
 from rich.box import SIMPLE
 from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
-from rich.text import Text
 
 from gmail_copy_tool.core.gmail_client import GmailClient
 
 app = typer.Typer()
 
-
 def normalize_date(date_str):
     """Normalize date string to YYYY/MM/DD for Gmail search queries."""
-    # Accepts YYYY-MM-DD, YYYY/MM/DD, YYYYMMDD, or RFC 2822 (e.g., Wed, 06 Aug 2025 12:15:15 +0000)
     if not date_str:
         return None
     date_str = date_str.strip()
@@ -31,8 +28,8 @@ def normalize_date(date_str):
         "%Y-%m-%d",
         "%Y/%m/%d",
         "%Y%m%d",
-        "%a, %d %b %Y %H:%M:%S %z",  # RFC 2822 with timezone
-        "%a, %d %b %Y %H:%M:%S %Z",  # RFC 2822 with timezone abbreviation
+        "%a, %d %b %Y %H:%M:%S %z",
+        "%a, %d %b %Y %H:%M:%S %Z",
     ]
     for fmt in fmts:
         try:
@@ -40,7 +37,6 @@ def normalize_date(date_str):
             return dt.strftime("%Y/%m/%d")
         except ValueError:
             continue
-    # Try parsing with email.utils if all else fails
     try:
         import email.utils
         parsed_tuple = email.utils.parsedate_tz(date_str)
@@ -51,10 +47,7 @@ def normalize_date(date_str):
         pass
     raise ValueError(f"Invalid date format: {date_str}")
 
-
-
 def compute_canonical_hash_from_gmailclient(client, msg_id):
-    """Compute a canonical hash for a Gmail message, ignoring headers known to be rewritten by Gmail."""
     try:
         msg = client.service.users().messages().get(userId="me", id=msg_id, format="raw").execute()
         raw = msg.get("raw")
@@ -64,7 +57,6 @@ def compute_canonical_hash_from_gmailclient(client, msg_id):
         parsed = email.message_from_bytes(raw_bytes)
         headers = []
         for k, v in sorted(parsed.items()):
-            # Optionally skip headers like 'Received', 'Message-Id', 'Date' if needed
             headers.append(f"{k.lower().strip()}: {v.strip()}")
         body_parts = []
         if parsed.is_multipart():
@@ -95,13 +87,11 @@ def build_canonical_hash_to_id(client, ids):
     return mapping
 
 def get_all_message_ids(client, label=None, after=None, before=None):
-    """Fetch all message IDs from a GmailClient with optional filters."""
     service = client.service
     user_id = "me"
     message_ids = []
     page_token = None
     query = ""
-
     if after:
         after_norm = normalize_date(after)
         query += f" after:{after_norm}"
@@ -113,7 +103,6 @@ def get_all_message_ids(client, label=None, after=None, before=None):
     else:
         label_ids = None
     logger = logging.getLogger(__name__)
-    logger.info(f"[get_all_message_ids] Query: '{query.strip()}', label_ids={label_ids}")
     while True:
         try:
             results = service.users().messages().list(
@@ -131,9 +120,7 @@ def get_all_message_ids(client, label=None, after=None, before=None):
         except Exception as e:
             logger.error(f"Failed to fetch message IDs: {e}")
             break
-    logger.info(f"[get_all_message_ids] Found {len(message_ids)} message IDs: {message_ids}")
     return message_ids
-
 
 @app.command()
 def compare(
@@ -148,44 +135,44 @@ def compare(
     before: str = typer.Option(None, help="Compare emails before this date (YYYY-MM-DD)")
 ):
     """Compare source and target Gmail accounts to verify all emails have been copied (hash-based, GUI style)."""
-
     debug_mode = os.environ.get("GMAIL_COPY_TOOL_DEBUG", "0") == "1"
     logger = logging.getLogger(__name__)
     if debug_mode:
         logging.getLogger().setLevel(logging.DEBUG)
         logger.debug("Debug mode enabled.")
-
-    logger.info(f"[COMPARE] after={after} before={before} label={label}")
-    logger.debug(f"Source: {source}, Target: {target}")
-    logger.debug(f"Credentials source: {credentials_source}, Credentials target: {credentials_target}")
+        logger.debug(f"Source: {source}, Target: {target}")
+        logger.debug(f"Credentials source: {credentials_source}, Credentials target: {credentials_target}")
+    if not debug_mode:
+        logging.getLogger("gmail_copy_tool.core.gmail_client").setLevel(logging.WARNING)
     source_client = GmailClient(source, credentials_path=credentials_source, token_path=token_source)
     target_client = GmailClient(target, credentials_path=credentials_target, token_path=token_target)
-
-    logger.debug("Fetching all message IDs for source...")
+    if debug_mode:
+        logger.debug("Fetching all message IDs for source...")
     source_ids_list = get_all_message_ids(source_client, label=label, after=after, before=before)
-    logger.debug(f"Source IDs: {source_ids_list}")
-    logger.debug("Fetching all message IDs for target...")
+    if debug_mode:
+        logger.debug(f"Source IDs: {source_ids_list}")
+        logger.debug("Fetching all message IDs for target...")
     target_ids_list = get_all_message_ids(target_client, label=label, after=after, before=before)
-    logger.debug(f"Target IDs: {target_ids_list}")
-
-    logger.debug("Building canonical hash-to-id map for source...")
+    if debug_mode:
+        logger.debug(f"Target IDs: {target_ids_list}")
+        logger.debug("Building canonical hash-to-id map for source...")
     source_hash_to_id = build_canonical_hash_to_id(source_client, source_ids_list)
-    logger.debug(f"Source canonical hash-to-id: {source_hash_to_id}")
-    logger.debug("Building canonical hash-to-id map for target...")
+    if debug_mode:
+        logger.debug(f"Source canonical hash-to-id: {source_hash_to_id}")
+        logger.debug("Building canonical hash-to-id map for target...")
     target_hash_to_id = build_canonical_hash_to_id(target_client, target_ids_list)
-    logger.debug(f"Target canonical hash-to-id: {target_hash_to_id}")
+    if debug_mode:
+        logger.debug(f"Target canonical hash-to-id: {target_hash_to_id}")
     source_hashes = set(source_hash_to_id.keys())
     target_hashes = set(target_hash_to_id.keys())
-    logger.debug(f"Source canonical hashes: {source_hashes}")
-    logger.debug(f"Target canonical hashes: {target_hashes}")
     missing_in_target = source_hashes - target_hashes
     extra_in_target = target_hashes - source_hashes
-    logger.debug(f"Missing in target: {missing_in_target}")
-    logger.debug(f"Extra in target: {extra_in_target}")
-
+    if debug_mode:
+        logger.debug(f"Source canonical hashes: {source_hashes}")
+        logger.debug(f"Target canonical hashes: {target_hashes}")
+        logger.debug(f"Missing in target: {missing_in_target}")
+        logger.debug(f"Extra in target: {extra_in_target}")
     console = Console(force_terminal=True)
-
-    # --- Summary Table ---
     summary_table = Table(show_header=True, header_style="bold cyan", box=None, pad_edge=True)
     summary_table.add_column("Metric", style="bold", justify="right")
     summary_table.add_column("Value", style="bold green", justify="left")
@@ -194,10 +181,27 @@ def compare(
     summary_table.add_row("Missing in target", str(len(missing_in_target)))
     summary_table.add_row("Extra in target", str(len(extra_in_target)))
     console.print(Panel(summary_table, title="📊 Comparison Summary", border_style="cyan", padding=(1,2)))
-
-    # --- Missing in Target ---
     if missing_in_target:
-        logger.debug("Building missing in target table...")
+        if debug_mode:
+            logger.debug("Building missing in target table...")
         table = Table(show_header=True, header_style="bold red", show_lines=True, box=SIMPLE)
         table.add_column("Hash", style="dim")
         table.add_column("Subject")
+        for h in list(missing_in_target)[:10]:
+            msg_id = source_hash_to_id[h]
+            _, parsed = compute_canonical_hash_from_gmailclient(source_client, msg_id)
+            subject = parsed.get("Subject", "") if parsed else ""
+            table.add_row(h, subject)
+        console.print(Panel(table, title="Missing in Target (sample)", border_style="red", padding=(1,2)))
+    if extra_in_target:
+        if debug_mode:
+            logger.debug("Building extra in target table...")
+        table = Table(show_header=True, header_style="bold yellow", show_lines=True, box=SIMPLE)
+        table.add_column("Hash", style="dim")
+        table.add_column("Subject")
+        for h in list(extra_in_target)[:10]:
+            msg_id = target_hash_to_id[h]
+            _, parsed = compute_canonical_hash_from_gmailclient(target_client, msg_id)
+            subject = parsed.get("Subject", "") if parsed else ""
+            table.add_row(h, subject)
+        console.print(Panel(table, title="Extra in Target (sample)", border_style="yellow", padding=(1,2)))

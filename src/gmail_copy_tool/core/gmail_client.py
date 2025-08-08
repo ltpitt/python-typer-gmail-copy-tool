@@ -17,6 +17,19 @@ SCOPES_MODIFY = ["https://www.googleapis.com/auth/gmail.modify"]
 
 
 logger = logging.getLogger(__name__)
+debug_mode = os.environ.get("GMAIL_COPY_TOOL_DEBUG", "0") == "1" or os.environ.get("PYTEST_CURRENT_TEST")
+if debug_mode:
+    logging.getLogger().setLevel(logging.DEBUG)
+    logging.getLogger("googleapiclient.discovery").setLevel(logging.DEBUG)
+    logging.getLogger("googleapiclient.discovery_cache").setLevel(logging.INFO)
+    logging.getLogger("requests_oauthlib").setLevel(logging.DEBUG)
+    logging.getLogger("urllib3").setLevel(logging.DEBUG)
+else:
+    logging.getLogger().setLevel(logging.WARNING)
+    logging.getLogger("googleapiclient.discovery").setLevel(logging.WARNING)
+    logging.getLogger("googleapiclient.discovery_cache").setLevel(logging.WARNING)
+    logging.getLogger("requests_oauthlib").setLevel(logging.WARNING)
+    logging.getLogger("urllib3").setLevel(logging.WARNING)
 
 class GmailClient:
 

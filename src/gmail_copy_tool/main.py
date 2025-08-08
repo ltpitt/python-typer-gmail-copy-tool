@@ -3,7 +3,9 @@ import typer
 from gmail_copy_tool.commands.analyze import analyze
 from gmail_copy_tool.commands.compare import compare
 from gmail_copy_tool.commands.copy import copy
+
 from gmail_copy_tool.commands.delete_duplicates import delete_duplicates
+from gmail_copy_tool.commands.remove_copied import remove_copied
 
 
 app = typer.Typer()
@@ -11,6 +13,7 @@ app.command()(analyze)
 app.command()(compare)
 app.command()(copy)
 app.command()(delete_duplicates)
+app.command()(remove_copied)
 
 @app.command()
 def hello():

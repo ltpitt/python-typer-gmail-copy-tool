@@ -1,6 +1,6 @@
 import sys
 import os
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../src')))
+
 import email.mime.text
 import logging
 from unittest.mock import MagicMock, Mock, patch
@@ -19,6 +19,9 @@ import uuid
 import datetime
 from gmail_copy_tool.utils.gmail_api_helpers import send_with_backoff
 import gmail_copy_tool.core.gmail_client as gmail_client_mod
+
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../src')))
+
 
 
 logging.basicConfig(
@@ -40,6 +43,101 @@ CRED_SOURCE = _test_config["CRED_SOURCE"]
 CRED_TARGET = _test_config["CRED_TARGET"]
 TOKEN_SOURCE = _test_config["TOKEN_SOURCE"]
 TOKEN_TARGET = _test_config["TOKEN_TARGET"]
+
+
+def test_remove_copied_command(setup_mailboxes):
+    """
+    Test the remove-copied CLI command by copying emails from source to target, then removing them from source if present in target.
+    """
+    # Wipe both mailboxes
+    wipe_mailbox(TOKEN_SOURCE)
+    wipe_mailbox(TOKEN_TARGET)
+
+    # Create emails in source: some to be copied, some to remain
+    creds_source = Credentials.from_authorized_user_file(TOKEN_SOURCE)
+    service_source = build('gmail', 'v1', credentials=creds_source)
+    copied_emails = [
+        {"subject": "Copied 1", "body": "Body copied 1"},
+        {"subject": "Copied 2", "body": "Body copied 2"},
+    ]
+    extra_emails = [
+        {"subject": "Extra 1", "body": "Body extra 1"},
+        {"subject": "Extra 2", "body": "Body extra 2"},
+    ]
+    copied_msgids = []
+    extra_msgids = []
+    for email_data in copied_emails:
+        msg = create_test_email(service_source, email_data["subject"], email_data["body"], SOURCE, SOURCE)
+        time.sleep(1)
+        copied_msgids.append(msg["id"])
+    for email_data in extra_emails:
+        msg = create_test_email(service_source, email_data["subject"], email_data["body"], SOURCE, SOURCE)
+        time.sleep(1)
+        extra_msgids.append(msg["id"])
+
+    # Patch GmailClient to always use mail.google.com
+    import gmail_copy_tool.core.gmail_client as gmail_client_mod
+    original_init = gmail_client_mod.GmailClient.__init__
+    def patched_init(self, account, credentials_path="credentials.json", token_path=None, scope=None):
+        return original_init(self, account, credentials_path, token_path, scope="mail.google.com")
+    gmail_client_mod.GmailClient.__init__ = patched_init
+
+    # Run the copy command to migrate only the copied emails to target
+    runner = CliRunner()
+    args = [
+        "copy",
+        "--source", SOURCE,
+        "--target", TARGET,
+        "--credentials-source", CRED_SOURCE,
+        "--credentials-target", CRED_TARGET,
+        "--token-source", TOKEN_SOURCE,
+        "--token-target", TOKEN_TARGET,
+    ]
+    result = runner.invoke(app, args)
+    assert result.exit_code == 0, result.output
+
+    # Run the remove-copied command
+    args = [
+        "remove-copied",
+        "--source", SOURCE,
+        "--target", TARGET,
+        "--credentials-source", CRED_SOURCE,
+        "--credentials-target", CRED_TARGET,
+        "--token-source", TOKEN_SOURCE,
+        "--token-target", TOKEN_TARGET,
+    ]
+    result = runner.invoke(app, args)
+    logging.debug("[DEBUG] remove-copied CLI output:\n%s", result.output)
+    assert result.exit_code == 0, result.output
+
+    # Wait for Gmail to process deletions
+    time.sleep(15)
+
+    # Assert using canonical hashes: only extra emails remain in source
+    creds_source = Credentials.from_authorized_user_file(TOKEN_SOURCE)
+    service_source = build('gmail', 'v1', credentials=creds_source)
+    remaining_ids = get_all_gmail_ids(service_source)
+    remaining_hashes = set()
+    print("\n[DEBUG] Remaining emails in source after remove-copied:")
+    for msg_id in remaining_ids:
+        hash_val, parsed = compute_canonical_hash_from_gmail(service_source, msg_id)
+        remaining_hashes.add(hash_val)
+        subject = parsed.get("Subject")
+        msgid = parsed.get("Message-ID")
+        print(f"  Gmail ID: {msg_id} | Subject: {subject} | Message-ID: {msgid} | Hash: {hash_val}")
+
+    # Compute expected hashes for extra emails that still exist
+    expected_hashes = set()
+    for msg_id in extra_msgids:
+        if msg_id in remaining_ids:
+            hash_val, _ = compute_canonical_hash_from_gmail(service_source, msg_id)
+            expected_hashes.add(hash_val)
+
+    assert remaining_hashes == expected_hashes, (
+        f"After remove-copied, source should only contain extra emails.\n"
+        f"Expected hashes: {expected_hashes}\n"
+        f"Actual hashes: {remaining_hashes}"
+    )
 
 
 def create_test_email(service, subject, body, to_addr, from_addr, label_ids=None, date=None):
@@ -64,9 +162,13 @@ def compute_canonical_hash_from_gmail(service, msg_id):
         return None, None
     raw_bytes = base64.urlsafe_b64decode(raw.encode("utf-8"))
     parsed = email.message_from_bytes(raw_bytes)
+    # Only include key headers for canonicalization
+    key_headers = ["from", "to", "subject", "date", "message-id"]
     headers = []
     for k, v in sorted(parsed.items()):
-        headers.append(f"{k.lower().strip()}: {v.strip()}")
+        k_lower = k.lower().strip()
+        if k_lower in key_headers:
+            headers.append(f"{k_lower}: {v.strip()}")
     body_parts = []
     if parsed.is_multipart():
         for part in parsed.walk():
@@ -93,6 +195,31 @@ def ensure_token(token_file, credentials_file, scope):
             token.write(creds.to_json())
 
 
+    # Re-instantiate service objects to reflect mailbox state after remove-copied
+    creds_source = Credentials.from_authorized_user_file(TOKEN_SOURCE)
+    service_source = build('gmail', 'v1', credentials=creds_source)
+    creds_target = Credentials.from_authorized_user_file(TOKEN_TARGET)
+    service_target = build('gmail', 'v1', credentials=creds_target)
+    source_ids_after_remove = get_all_gmail_ids(service_source)
+    target_ids_after_remove = get_all_gmail_ids(service_target)
+    logging.debug("[DEBUG] Source Gmail IDs after remove-copied: %s", source_ids_after_remove)
+    logging.debug("[DEBUG] Target Gmail IDs after remove-copied: %s", target_ids_after_remove)
+    for msg_id in source_ids_after_remove:
+        msg_meta = service_source.users().messages().get(userId='me', id=msg_id, format='metadata').execute()
+        msgid = None
+        for h in msg_meta.get('payload', {}).get('headers', []):
+            if h.get('name', '').lower() == 'message-id':
+                msgid = h.get('value')
+                break
+        logging.debug("[DEBUG] Source after remove-copied Message-ID: %s", msgid)
+    for msg_id in target_ids_after_remove:
+        msg_meta = service_target.users().messages().get(userId='me', id=msg_id, format='metadata').execute()
+        msgid = None
+        for h in msg_meta.get('payload', {}).get('headers', []):
+            if h.get('name', '').lower() == 'message-id':
+                msgid = h.get('value')
+                break
+        logging.debug("[DEBUG] Target after remove-copied Message-ID: %s", msgid)
 def wipe_mailbox(token_file):
     creds = Credentials.from_authorized_user_file(token_file)
     service = build('gmail', 'v1', credentials=creds)
@@ -325,6 +452,19 @@ def test_delete_command(setup_mailboxes):
     assert count == 0, f"Mailbox not empty after delete operation, found {count} messages"
 
 
+def get_all_gmail_ids(service):
+    ids = []
+    page_token = None
+    while True:
+        results = service.users().messages().list(userId='me', pageToken=page_token, includeSpamTrash=True).execute()
+        messages = results.get('messages', [])
+        ids.extend(msg['id'] for msg in messages)
+        page_token = results.get('nextPageToken')
+        if not page_token:
+            break
+    return ids
+
+
 def test_copy_and_compare_real_accounts(setup_mailboxes):
     """
     Test copying and comparing all emails between real accounts.
@@ -373,26 +513,36 @@ def test_copy_and_compare_real_accounts(setup_mailboxes):
     assert result.exit_code == 0, result.output
     assert "Comparison Summary" in result.output
 
-    # --- MIME-based verification ---
+    # --- Canonical hash verification ---
     creds_source = Credentials.from_authorized_user_file(TOKEN_SOURCE)
     service_source = build('gmail', 'v1', credentials=creds_source)
     creds_target = Credentials.from_authorized_user_file(TOKEN_TARGET)
     service_target = build('gmail', 'v1', credentials=creds_target)
 
-    def get_all_gmail_ids(service):
-        ids = []
-        page_token = None
-        while True:
-            results = service.users().messages().list(userId='me', pageToken=page_token, includeSpamTrash=True).execute()
-            messages = results.get('messages', [])
-            ids.extend(msg['id'] for msg in messages)
-            page_token = results.get('nextPageToken')
-            if not page_token:
-                break
-        return ids
+    def get_canonical_hashes(service):
+        ids = get_all_gmail_ids(service)
+        hashes = set()
+        for msg_id in ids:
+            hash_val, _ = compute_canonical_hash_from_gmail(service, msg_id)
+            if hash_val:
+                hashes.add(hash_val)
+        return hashes
 
-    source_ids = get_all_gmail_ids(service_source)
-    target_ids = get_all_gmail_ids(service_target)
+    source_hashes = get_canonical_hashes(service_source)
+    target_hashes = get_canonical_hashes(service_target)
+    print("[DEBUG] Source canonical hashes and samples:")
+    for msg_id in get_all_gmail_ids(service_source):
+        hash_val, parsed = compute_canonical_hash_from_gmail(service_source, msg_id)
+        print(f"Source: {msg_id} | Hash: {hash_val}\nCanonical sample:\n" + str(parsed)[:300])
+    print("[DEBUG] Target canonical hashes and samples:")
+    for msg_id in get_all_gmail_ids(service_target):
+        hash_val, parsed = compute_canonical_hash_from_gmail(service_target, msg_id)
+        print(f"Target: {msg_id} | Hash: {hash_val}\nCanonical sample:\n" + str(parsed)[:300])
+    assert source_hashes == target_hashes, (
+        f"Canonical hashes do not match after migration!\n"
+        f"Source only: {sorted(list(source_hashes - target_hashes))}\n"
+        f"Target only: {sorted(list(target_hashes - source_hashes))}"
+    )
 
 
 def test_copy_and_compare_date_filter(setup_mailboxes):

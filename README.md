@@ -66,17 +66,17 @@ gmail-copy-tool --help
 ### `analyze`
 
 ```bash
-gmail-copy-tool analyze --account source@gmail.com
+gmail-copy-tool analyze --account source@gmail.com --token-file token_source.json
 ```
 
-Counts total number of emails in the specified Gmail account.
+Counts total number of emails in the specified Gmail account. Uses explicit token file for safety.
 
 ---
 
 ### `copy`
 
 ```bash
-gmail-copy-tool copy --source source@gmail.com --target target@gmail.com
+gmail-copy-tool copy --source source@gmail.com --target target@gmail.com --source-token token_source.json --target-token token_target.json
 ```
 
 Copies all emails from the source account to the target account.
@@ -84,39 +84,47 @@ Copies all emails from the source account to the target account.
 - Includes attachments, labels, and metadata
 - Automatically resumes if interrupted
 - Skips already-copied messages using message ID tracking
+- Uses explicit token files for safety and repeatability
 
 ---
 
 ### `compare`
 
 ```bash
-gmail-copy-tool compare --source source@gmail.com --target target@gmail.com
+gmail-copy-tool compare --source source@gmail.com --target target@gmail.com --source-token token_source.json --target-token token_target.json
 ```
 
 Compares source and target accounts to verify that all emails have been copied.
 
-- Uses Gmail message IDs for comparison
+- Uses canonical hashes for robust comparison (ignores Gmail-injected headers)
 - Reports missing or mismatched messages
 
 ---
 
-### `delete-duplicates`
+
+
+### `remove-copied`
 
 ```bash
-gmail-copy-tool delete-duplicates --source source@gmail.com --target target@gmail.com
+gmail-copy-tool remove-copied --source source@gmail.com --target target@gmail.com --source-token token_source.json --target-token token_target.json
 ```
 
-Deletes emails from the source account that already exist in the target account.
+Removes from the source account all emails that are present in the target account (based on canonical hash comparison).
 
-- Safe operation: only deletes exact matches
-- Useful for cleanup after migration
+- Safe operation: only deletes emails confirmed present in the target
+- Only emails that were actually copied are deleted; extra emails remain
+- Useful for cleanup after migration to avoid duplicates in the source
+
+---
+
+---
 
 ---
 
 ## 🧠 Behavioral Details
 
 - **Resume Mechanism**: Stores last copied message ID in `.gmail-copy-checkpoint.json`. On restart, resumes from that point.
-- **Comparison Logic**: Uses Gmail message IDs to detect duplicates and verify integrity.
+- **Comparison Logic**: Uses canonical hashes (ignoring Gmail-injected headers) for robust integrity verification and deduplication.
 - **Data Copied**:
   - Email body
   - Attachments
@@ -129,11 +137,58 @@ Deletes emails from the source account that already exist in the target account.
 
 ---
 
+
+---
+
+## ⚙️ Environment Variables
+
+- `GMAIL_COPY_TOOL_DEBUG=1`: Enables debug logging for troubleshooting and development. Shows detailed progress and internal state.
+
+---
+
+## 🧪 Testing
+
+Integration tests in `tests/test_integration.py` robustly verify all major CLI commands:
+
+- **Setup:** Both source and target mailboxes are wiped and populated with known emails before each test.
+- **Assertions:** All data integrity checks use canonical hashes, ignoring Gmail-injected headers for reliability.
+- **Coverage:**
+  - `copy`: Asserts all emails are copied, with hashes matching between source and target.
+  - `compare`: Asserts source and target hashes match after migration.
+  - `remove-copied`: Asserts only emails that were copied are deleted from source, extra emails remain.
+  - `delete-duplicates`: Asserts only true duplicates are deleted, using hash-based matching.
+
+**Test Safety:**
+- All tests use explicit token/config files for safety and repeatability.
+- No test ever deletes or modifies emails outside the test setup.
+
+**To run all tests:**
+```bash
+pytest
+```
+**To run only integration tests:**
+```bash
+pytest tests/test_integration.py
+```
+
+---
+
+## 🛠️ Troubleshooting
+
+- If you see authentication prompts, ensure your token files are present and valid.
+- For IndentationError or import errors, check for duplicate/conflicting code blocks and clean up your source files.
+- For noisy logs, set `GMAIL_COPY_TOOL_DEBUG=0` (default) for production use.
+
+---
+
 ## 🧪 Development Notes
 
 - Built with [Typer](https://typer.tiangolo.com/) for intuitive CLI design
 - Uses `google-api-python-client` for Gmail access
 - Modular structure for easy extension
+- Professional logging: only warnings/errors shown to users, debug/info in debug mode
+- All CLI commands accept explicit token file options for safety and repeatability
+- All integration tests assert true data integrity using canonical hashes
 
 ---
 

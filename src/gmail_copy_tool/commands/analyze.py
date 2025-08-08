@@ -13,6 +13,11 @@ def analyze(
     before: str = typer.Option(None, help="Count emails before this date (YYYY-MM-DD)"),
     label: str = typer.Option(None, help="Count emails with this Gmail label")
 ):
+    """Analyze a Gmail account and count emails, optionally filtered by date or label."""
+    import os, logging
+    debug_mode = os.environ.get("GMAIL_COPY_TOOL_DEBUG", "0") == "1"
+    if not debug_mode:
+        logging.getLogger("gmail_copy_tool.core.gmail_client").setLevel(logging.WARNING)
     try:
         client = GmailClient(account, credentials_path=credentials, token_path=token)
         typer.echo(f"Analyzing account: {account}")
