@@ -1,7 +1,5 @@
 # python-typer-gmail-copy-tool
 
-Uno strumento da riga di comando (CLI) costruito con [Typer](https://typer.tiangolo.com/) che consente di analizzare, copiare, confrontare e ripulire le email tra account Gmail. Progettato per essere affidabile, riprendere automaticamente in caso di interruzioni e garantire l'integrità dei dati.
-
 ---
 
 ## 📌 Funzionalità
@@ -134,7 +132,7 @@ Rimuove dall’account sorgente tutte le email che sono presenti nell’account 
 
 ---
 
-## 🧾 Esempio di Configurazione Test
+## 🧾 Configurazione di Test ed Esempio
 
 Un file di esempio (`tests/test_config_example.json`) è fornito per aiutare gli utenti a eseguire test di integrazione e automatizzare i comandi CLI.
 
@@ -209,7 +207,7 @@ I test di integrazione in `tests/test_integration.py` verificano in modo robusto
 
 ---
 
-## ⚠️ Limitazioni API Gmail & Note di Affidabilità
+## ⚠️ Limitazioni e Note di Affidabilità API Gmail
 
 Questo strumento è progettato per funzionare in modo affidabile con l’API Gmail, ma ci sono alcune limitazioni e particolarità da considerare:
 
