@@ -1,5 +1,8 @@
 import time
 import logging
+import os
+from google_auth_oauthlib.flow import InstalledAppFlow
+from google.oauth2.credentials import Credentials
 
 logger = logging.getLogger(__name__)
 
@@ -72,3 +75,28 @@ def send_with_backoff(send_func, max_retries=5, initial_delay=2, *args, **kwargs
         logger.error(f"Giving up on sending email after {max_retries} attempts.")
         print(f"Giving up on sending email after {max_retries} attempts.", flush=True)
         return None
+
+def ensure_token(token_path, credentials_path, scope):
+    """
+    Ensure a valid token exists at the specified path. If not, create one using the credentials file.
+
+    Args:
+        token_path (str): Path to the token file.
+        credentials_path (str): Path to the credentials file.
+        scope (str): The scope for the Gmail API.
+
+    Returns:
+        None
+    """
+    if os.path.exists(token_path):
+        try:
+            creds = Credentials.from_authorized_user_file(token_path, [scope])
+            if creds and creds.valid:
+                return
+        except Exception:
+            pass
+
+    flow = InstalledAppFlow.from_client_secrets_file(credentials_path, [scope])
+    creds = flow.run_local_server(port=0)
+    with open(token_path, 'w') as token_file:
+        token_file.write(creds.to_json())

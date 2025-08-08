@@ -17,7 +17,7 @@ import os
 import time
 import uuid
 import datetime
-from gmail_copy_tool.utils.gmail_api_helpers import send_with_backoff
+from gmail_copy_tool.utils.gmail_api_helpers import send_with_backoff, ensure_token
 import gmail_copy_tool.core.gmail_client as gmail_client_mod
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../src')))
@@ -150,7 +150,9 @@ def create_test_email(service, subject, body, to_addr, from_addr, label_ids=None
     raw = base64.urlsafe_b64encode(message.as_bytes()).decode()
     send_func = lambda: service.users().messages().send(userId='me', body={'raw': raw}).execute()
     msg = send_with_backoff(send_func)
-    if label_ids and msg:
+    if not msg:
+        raise RuntimeError("Failed to create test email after multiple retries.")
+    if label_ids:
         service.users().messages().modify(userId='me', id=msg['id'], body={'addLabelIds': label_ids}).execute()
     return msg
 
@@ -187,39 +189,6 @@ def compute_canonical_hash_from_gmail(service, msg_id):
     return hash_val, parsed
 
 
-def ensure_token(token_file, credentials_file, scope):
-    if not os.path.exists(token_file):
-        flow = InstalledAppFlow.from_client_secrets_file(credentials_file, ["https://mail.google.com/"])
-        creds = flow.run_local_server(port=0)
-        with open(token_file, "w") as token:
-            token.write(creds.to_json())
-
-
-    # Re-instantiate service objects to reflect mailbox state after remove-copied
-    creds_source = Credentials.from_authorized_user_file(TOKEN_SOURCE)
-    service_source = build('gmail', 'v1', credentials=creds_source)
-    creds_target = Credentials.from_authorized_user_file(TOKEN_TARGET)
-    service_target = build('gmail', 'v1', credentials=creds_target)
-    source_ids_after_remove = get_all_gmail_ids(service_source)
-    target_ids_after_remove = get_all_gmail_ids(service_target)
-    logging.debug("[DEBUG] Source Gmail IDs after remove-copied: %s", source_ids_after_remove)
-    logging.debug("[DEBUG] Target Gmail IDs after remove-copied: %s", target_ids_after_remove)
-    for msg_id in source_ids_after_remove:
-        msg_meta = service_source.users().messages().get(userId='me', id=msg_id, format='metadata').execute()
-        msgid = None
-        for h in msg_meta.get('payload', {}).get('headers', []):
-            if h.get('name', '').lower() == 'message-id':
-                msgid = h.get('value')
-                break
-        logging.debug("[DEBUG] Source after remove-copied Message-ID: %s", msgid)
-    for msg_id in target_ids_after_remove:
-        msg_meta = service_target.users().messages().get(userId='me', id=msg_id, format='metadata').execute()
-        msgid = None
-        for h in msg_meta.get('payload', {}).get('headers', []):
-            if h.get('name', '').lower() == 'message-id':
-                msgid = h.get('value')
-                break
-        logging.debug("[DEBUG] Target after remove-copied Message-ID: %s", msgid)
 def wipe_mailbox(token_file):
     creds = Credentials.from_authorized_user_file(token_file)
     service = build('gmail', 'v1', credentials=creds)
@@ -360,8 +329,8 @@ def delete_all_emails(service):
 
 @pytest.fixture(scope="function")
 def setup_mailboxes():
-    ensure_token(TOKEN_SOURCE, CRED_SOURCE, "mail.google.com")
-    ensure_token(TOKEN_TARGET, CRED_TARGET, "mail.google.com")
+    ensure_token(TOKEN_SOURCE, CRED_SOURCE, "https://www.googleapis.com/auth/gmail.modify")
+    ensure_token(TOKEN_TARGET, CRED_TARGET, "https://www.googleapis.com/auth/gmail.modify")
     wipe_mailbox(TOKEN_SOURCE)
     wipe_mailbox(TOKEN_TARGET)
     yield
