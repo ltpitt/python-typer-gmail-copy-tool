@@ -2,10 +2,6 @@ import os
 import logging
 import base64
 import email
-import os
-import logging
-import base64
-import email
 import hashlib
 from datetime import datetime
 
@@ -47,49 +43,6 @@ def normalize_date(date_str):
     except Exception:
         pass
     raise ValueError(f"Invalid date format: {date_str}")
-
-def compute_canonical_hash_from_gmailclient(client, msg_id):
-    try:
-        msg = client.service.users().messages().get(userId="me", id=msg_id, format="raw").execute()
-        raw = msg.get("raw")
-        if not raw:
-            logging.getLogger(__name__).debug(f"Message {msg_id} has no raw content.")
-            return None, None
-        raw_bytes = base64.urlsafe_b64decode(raw.encode("utf-8"))
-        parsed = email.message_from_bytes(raw_bytes)
-        logging.getLogger(__name__).debug(f"Raw content for {msg_id}: {raw_bytes.decode(errors='replace')}")
-        headers = []
-        for k, v in sorted(parsed.items()):
-            headers.append(f"{k.lower().strip()}: {v.strip()}")
-        body_parts = []
-        if parsed.is_multipart():
-            for part in parsed.walk():
-                if part.is_multipart():
-                    continue
-                payload = part.get_payload(decode=True) or b""
-                ctype = part.get_content_type()
-                fname = part.get_filename() or ""
-                body_parts.append(f"{ctype}|{fname}|{hashlib.sha256(payload).hexdigest()}")
-        else:
-            payload = parsed.get_payload(decode=True) or b""
-            ctype = parsed.get_content_type()
-            body_parts.append(f"{ctype}|{hashlib.sha256(payload).hexdigest()}")
-        canonical = "\n".join(headers + body_parts)
-        logging.getLogger(__name__).debug(f"Canonical string for {msg_id}: {canonical}")
-        hash_val = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
-        logging.getLogger(__name__).debug(f"Canonical hash for {msg_id}: {hash_val}")
-        return hash_val, parsed
-    except Exception as e:
-        logging.getLogger(__name__).error(f"Failed to get canonical hash for {msg_id}: {e}")
-        return None, None
-
-def build_canonical_hash_to_id(client, ids):
-    mapping = {}
-    for msg_id in ids:
-        h, _ = compute_canonical_hash_from_gmailclient(client, msg_id)
-        if h:
-            mapping[h] = msg_id
-    return mapping
 
 def get_all_message_ids(client, label=None, after=None, before=None):
     service = client.service

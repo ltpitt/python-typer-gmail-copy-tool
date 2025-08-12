@@ -66,6 +66,8 @@ The tool uses OAuth 2.0 for Gmail access. On first run, it will prompt for autho
 - `token_target.json`: Token for target account
 - `.gmail-copy-checkpoint.json`: Stores last copied message ID for resume functionality
 
+Additionally, the `check_and_fix_tokens` function ensures that the required tokens are present. If missing, it attempts to fix the issue by running the `delete-duplicates` command for the respective account.
+
 ---
 
 ## 📚 Usage

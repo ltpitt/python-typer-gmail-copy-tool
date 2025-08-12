@@ -327,6 +327,18 @@ def delete_all_emails(service):
         raise Exception(f"Failed to delete all emails. Remaining messages: {len(remaining)}")
 
 
+def cleanup_labels(service):
+    """Delete all test-created labels in the Gmail account."""
+    user_id = 'me'
+    labels = service.users().labels().list(userId=user_id).execute().get('labels', [])
+    for label in labels:
+        # Check if the label name matches the test label naming pattern
+        if label['type'] == 'user' and label['name'].startswith("TestLabel-"):
+            try:
+                service.users().labels().delete(userId=user_id, id=label['id']).execute()
+            except Exception as e:
+                logging.error(f"Failed to delete label {label['name']}: {e}")
+
 @pytest.fixture(scope="function")
 def setup_mailboxes():
     ensure_token(TOKEN_SOURCE, CRED_SOURCE, "https://www.googleapis.com/auth/gmail.modify")
@@ -336,6 +348,13 @@ def setup_mailboxes():
     yield
     wipe_mailbox(TOKEN_SOURCE)
     wipe_mailbox(TOKEN_TARGET)
+    # Cleanup labels in both source and target accounts
+    creds_source = Credentials.from_authorized_user_file(TOKEN_SOURCE)
+    service_source = build('gmail', 'v1', credentials=creds_source)
+    cleanup_labels(service_source)
+    creds_target = Credentials.from_authorized_user_file(TOKEN_TARGET)
+    service_target = build('gmail', 'v1', credentials=creds_target)
+    cleanup_labels(service_target)
 
 
 def test_copy_preserves_custom_labels(setup_mailboxes):

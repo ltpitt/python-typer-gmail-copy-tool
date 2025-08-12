@@ -67,6 +67,8 @@ Lo strumento utilizza OAuth 2.0 per accedere a Gmail. Al primo avvio, richieder�
 - `token_target.json`: token per l’account di destinazione
 - `.gmail-copy-checkpoint.json`: memorizza l’ID dell’ultimo messaggio copiato per riprendere la copia
 
+Inoltre, la funzione `check_and_fix_tokens` garantisce che i token richiesti siano presenti. Se mancanti, tenta di risolvere il problema eseguendo il comando `delete-duplicates` per l’account corrispondente.
+
 ---
 
 ## 📚 Utilizzo

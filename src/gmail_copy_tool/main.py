@@ -9,6 +9,15 @@ from gmail_copy_tool.commands.delete_duplicates import delete_duplicates
 from gmail_copy_tool.commands.remove_copied import remove_copied
 
 
+import logging
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s %(name)s: %(message)s"
+)
+
+# Suppress googleapiclient.discovery_cache INFO logs
+logging.getLogger("googleapiclient.discovery_cache").setLevel(logging.WARNING)
+
 app = typer.Typer()
 app.command()(analyze)
 app.command()(compare)
@@ -60,13 +69,7 @@ def check_and_fix_tokens():
             credentials="credentials_target.json"
         )
 
+
 if __name__ == "__main__":
     check_and_fix_tokens
-    import logging
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s %(levelname)s %(name)s: %(message)s"
-    )
-    # Suppress googleapiclient.discovery_cache INFO logs
-    logging.getLogger("googleapiclient.discovery_cache").setLevel(logging.WARNING)
     app()
