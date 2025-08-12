@@ -1,0 +1,8 @@
+{
+  "SOURCE": "source@example.com",
+  "TARGET": "target@example.com", 
+  "CRED_SOURCE": "path/to/credentials.json",
+  "CRED_TARGET": "path/to/credentials.json",
+  "TOKEN_SOURCE": "path/to/token_source.json",
+  "TOKEN_TARGET": "path/to/token_target.json"
+}
