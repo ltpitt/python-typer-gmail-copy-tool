@@ -357,6 +357,75 @@ def setup_mailboxes():
     cleanup_labels(service_target)
 
 
+def test_minimal_date_preservation(setup_mailboxes):
+    """
+    Test that Date header is preserved during email migration when using the copy command.
+    """
+    import email.utils
+    from datetime import datetime, timezone
+    
+    # Create a test email with a specific Date header
+    creds_source = Credentials.from_authorized_user_file(TOKEN_SOURCE)
+    service_source = build('gmail', 'v1', credentials=creds_source)
+    
+    # Set a specific date that's easily recognizable
+    test_date = "Mon, 15 Jan 2024 10:30:00 +0000"
+    test_email = create_test_email(service_source, "Date Preservation Test", "Test body", SOURCE, SOURCE, date=test_date)
+    time.sleep(1)
+    
+    # Patch GmailClient to always use mail.google.com
+    original_init = gmail_client_mod.GmailClient.__init__
+    def patched_init(self, account, credentials_path="credentials.json", token_path=None, scope=None):
+        return original_init(self, account, credentials_path, token_path, scope="mail.google.com")
+    gmail_client_mod.GmailClient.__init__ = patched_init
+    
+    # Run copy command
+    runner = CliRunner()
+    args = [
+        "copy",
+        "--source", SOURCE,
+        "--target", TARGET,
+        "--credentials-source", CRED_SOURCE,
+        "--credentials-target", CRED_TARGET,
+        "--token-source", TOKEN_SOURCE,
+        "--token-target", TOKEN_TARGET,
+    ]
+    result = runner.invoke(app, args)
+    assert result.exit_code == 0, result.output
+    
+    # Get the original Message-ID from source
+    src_meta = service_source.users().messages().get(userId='me', id=test_email['id'], format='metadata').execute()
+    original_msgid = None
+    original_date = None
+    for h in src_meta.get('payload', {}).get('headers', []):
+        if h.get('name', '').lower() == 'message-id':
+            original_msgid = h.get('value')
+        if h.get('name', '').lower() == 'date':
+            original_date = h.get('value')
+    
+    assert original_msgid, "Original Message-ID not found"
+    assert original_date, "Original Date header not found"
+    
+    # Find the copied email in target by Message-ID
+    creds_target = Credentials.from_authorized_user_file(TOKEN_TARGET)
+    service_target = build('gmail', 'v1', credentials=creds_target)
+    copied_msg_id = find_message_by_msgid(service_target, original_msgid)
+    assert copied_msg_id, "Copied message not found in target"
+    
+    # Get the Date header from the copied email
+    copied_meta = service_target.users().messages().get(userId='me', id=copied_msg_id, format='metadata').execute()
+    copied_date = None
+    for h in copied_meta.get('payload', {}).get('headers', []):
+        if h.get('name', '').lower() == 'date':
+            copied_date = h.get('value')
+            break
+    
+    assert copied_date, "Date header not found in copied email"
+    
+    # Assert that the Date header is preserved
+    assert original_date == copied_date, f"Date header not preserved: expected '{original_date}', got '{copied_date}'"
+
+
 def test_copy_preserves_custom_labels(setup_mailboxes):
     """
     Test that custom labels on source emails are preserved in the target after migration.
