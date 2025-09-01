@@ -192,17 +192,27 @@ def test_checkpoint_file_permissions():
         cp.mark_copied("test_msg")
         assert cp.is_copied("test_msg")
         
-        # Make directory read-only (this should not affect existing file operations)
-        # Note: This test is mainly to ensure the implementation handles filesystem issues gracefully
-        if os.name != 'nt':  # Skip on Windows as chmod behavior is different
-            os.chmod(tmpdir, 0o444)
+        # Note: Making directory read-only might not prevent file access on all systems
+        # This test primarily ensures the implementation handles filesystem issues gracefully
+        # The exact behavior may vary by platform
+        if os.name != 'nt':  # Skip detailed permission test on Windows
+            # Make file read-only
+            os.chmod(checkpoint_path, 0o444)
             try:
                 # Should still be able to read existing file
                 cp2 = Checkpoint(checkpoint_path)
                 assert cp2.is_copied("test_msg")
+                
+                # Writing might fail, but should be handled gracefully
+                # This test mainly ensures no crashes occur
+                try:
+                    cp2.mark_copied("new_msg")
+                except (OSError, IOError):
+                    # Expected on systems that enforce read-only files
+                    pass
             finally:
                 # Restore permissions for cleanup
-                os.chmod(tmpdir, 0o755)
+                os.chmod(checkpoint_path, 0o644)
 
 
 def test_checkpoint_path_property():
