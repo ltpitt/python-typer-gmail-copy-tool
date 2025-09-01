@@ -181,3 +181,70 @@ class TestCopyCommand:
         # Test missing target
         result = self.runner.invoke(app, ["--source", "source@gmail.com"])
         assert result.exit_code != 0
+
+    @patch('gmail_copy_tool.commands.copy.GmailClient')
+    def test_copy_command_uses_internal_date_source(self, mock_gmail_client):
+        """Test that copy command uses internalDateSource=dateHeader when inserting messages."""
+        # Mock clients to avoid actual Gmail API calls
+        mock_source_client = MagicMock()
+        mock_target_client = MagicMock()
+        mock_gmail_client.side_effect = [mock_source_client, mock_target_client]
+        
+        # Mock the service methods and return values
+        mock_source_service = MagicMock()
+        mock_target_service = MagicMock()
+        mock_source_client.service = mock_source_service
+        mock_target_client.service = mock_target_service
+        
+        # Mock message IDs retrieval
+        with patch('gmail_copy_tool.commands.copy._get_all_message_ids') as mock_get_ids:
+            mock_get_ids.side_effect = [
+                ["test_message_id"],  # Source messages
+                []  # Target messages (empty for deduplication check)
+            ]
+            
+            # Mock the labels list call for label preservation
+            mock_source_service.users().labels().list().execute.return_value = {'labels': []}
+            mock_target_service.users().labels().list().execute.return_value = {'labels': []}
+            
+            # Mock the metadata call for the source message
+            mock_metadata_response = {
+                'payload': {'headers': [
+                    {'name': 'Subject', 'value': 'Test Subject'},
+                    {'name': 'Message-ID', 'value': '<test@example.com>'}
+                ]},
+                'labelIds': ['INBOX']
+            }
+            mock_source_service.users().messages().get().execute.return_value = mock_metadata_response
+            
+            # Mock the raw message call - need to differentiate between metadata and raw format calls
+            def mock_get_side_effect(*args, **kwargs):
+                if kwargs.get('format') == 'raw':
+                    mock_response = MagicMock()
+                    mock_response.execute.return_value = {'raw': 'dGVzdCByYXcgZW1haWwgZGF0YQ=='}
+                    return mock_response
+                else:  # metadata format
+                    mock_response = MagicMock()
+                    mock_response.execute.return_value = mock_metadata_response
+                    return mock_response
+            
+            mock_source_service.users().messages().get.side_effect = mock_get_side_effect
+            
+            # Mock the insert call
+            mock_insert_response = {'id': 'new_message_id'}
+            mock_insert_call = MagicMock()
+            mock_insert_call.execute.return_value = mock_insert_response
+            mock_target_service.users().messages().insert.return_value = mock_insert_call
+            
+            # Run the copy command
+            result = self.runner.invoke(app, [
+                "--source", "source@gmail.com",
+                "--target", "target@gmail.com"
+            ])
+            
+            # Verify the insert call was made with internalDateSource=dateHeader
+            mock_target_service.users().messages().insert.assert_called_with(
+                userId="me",
+                body={"raw": 'dGVzdCByYXcgZW1haWwgZGF0YQ=='},
+                internalDateSource="dateHeader"
+            )
