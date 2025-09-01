@@ -132,7 +132,7 @@ def copy(
                     except Exception:
                         pass
 
-                    response = target_client.service.users().messages().insert(userId="me", body={"raw": src_raw_b64}).execute()
+                    response = target_client.service.users().messages().insert(userId="me", body={"raw": src_raw_b64}, internalDateSource="dateHeader").execute()
                     copied_count += 1
 
                     if cp and src_msgid:
