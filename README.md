@@ -249,7 +249,7 @@ This tool is designed to work reliably with the Gmail API, but several limitatio
 
 ## 🧑‍💻 Contributing
 
-Pull requests welcome. Please ensure code is typed and tested.
+Pull requests welcome :)
 
 ---
 
