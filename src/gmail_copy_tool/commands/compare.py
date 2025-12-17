@@ -4,6 +4,7 @@ import base64
 import email
 import hashlib
 from datetime import datetime
+from typing import Optional
 
 import typer
 from rich.box import SIMPLE
@@ -13,6 +14,7 @@ from rich.table import Table
 
 from gmail_copy_tool.core.gmail_client import GmailClient
 from gmail_copy_tool.utils.canonicalization import compute_canonical_hash
+from gmail_copy_tool.utils.config import ConfigManager
 
 app = typer.Typer()
 
@@ -124,28 +126,54 @@ def get_all_message_ids_with_headers(client, label=None, after=None, before=None
 
 @app.command()
 def compare(
-    source: str = typer.Option(..., help="Source Gmail account email address"),
-    target: str = typer.Option(..., help="Target Gmail account email address"),
-    credentials_source: str = typer.Option("credentials_source.json", help="Path to source account credentials file (default: credentials_source.json)"),
-    credentials_target: str = typer.Option("credentials_target.json", help="Path to target account credentials file (default: credentials_target.json)"),
-    token_source: str = typer.Option(None, help="Path to OAuth token file for source account (optional)"),
-    token_target: str = typer.Option(None, help="Path to OAuth token file for target account (optional)"),
+    source: str = typer.Argument(..., help="Source account nickname"),
+    target: str = typer.Argument(..., help="Target account nickname"),
     label: str = typer.Option(None, help="Compare only emails with this Gmail label"),
     after: str = typer.Option(None, help="Compare emails after this date (YYYY-MM-DD)"),
-    before: str = typer.Option(None, help="Compare emails before this date (YYYY-MM-DD)")
+    before: str = typer.Option(None, help="Compare emails before this date (YYYY-MM-DD)"),
+    year: int = typer.Option(None, help="Compare emails from specific year (e.g., 2024)")
 ):
-    """Compare source and target accounts. Verifies all emails are copied (Message-ID based)."""
+    """Compare source and target accounts. Verifies all emails are copied (Message-ID based).
+    
+    Examples:
+        gmail-copy-tool compare archive3 archive4
+        gmail-copy-tool compare archive3 archive4 --year 2024
+    """
     debug_mode = os.environ.get("GMAIL_COPY_TOOL_DEBUG", "0") == "1"
     logger = logging.getLogger(__name__)
     if debug_mode:
         logging.getLogger().setLevel(logging.DEBUG)
         logger.debug("Debug mode enabled.")
-        logger.debug(f"Source: {source}, Target: {target}")
-        logger.debug(f"Credentials source: {credentials_source}, Credentials target: {credentials_target}")
     if not debug_mode:
         logging.getLogger("gmail_copy_tool.core.gmail_client").setLevel(logging.WARNING)
-    source_client = GmailClient(source, credentials_path=credentials_source, token_path=token_source)
-    target_client = GmailClient(target, credentials_path=credentials_target, token_path=token_target)
+    
+    # Handle --year shortcut
+    if year:
+        after = f"{year}-01-01"
+        before = f"{year}-12-31"
+    
+    # Resolve accounts from config
+    config_manager = ConfigManager()
+    
+    try:
+        source_account = config_manager.resolve_account(source)
+        target_account = config_manager.resolve_account(target)
+    except typer.Exit:
+        raise
+    
+    source_email = source_account["email"]
+    target_email = target_account["email"]
+    source_creds = source_account["credentials"]
+    target_creds = target_account["credentials"]
+    source_token = source_account["token"]
+    target_token = target_account["token"]
+    
+    if debug_mode:
+        logger.debug(f"Source: {source_email}, Target: {target_email}")
+        logger.debug(f"Credentials source: {source_creds}, Credentials target: {target_creds}")
+    
+    source_client = GmailClient(source_email, credentials_path=source_creds, token_path=source_token)
+    target_client = GmailClient(target_email, credentials_path=target_creds, token_path=target_token)
     if debug_mode:
         logger.debug("Fetching all Message-IDs for source...")
     source_message_ids = get_all_message_ids_with_headers(source_client, label=label, after=after, before=before)

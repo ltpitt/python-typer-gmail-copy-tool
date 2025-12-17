@@ -20,10 +20,15 @@ class TestAnalyzeCommand:
         mock_client.count_emails.return_value = 150
         mock_gmail_client.return_value = mock_client
         
-        result = self.runner.invoke(app, [
-            "--account", "test@gmail.com",
-            "--credentials", "test_creds.json"
-        ])
+        # Mock config manager
+        with patch('gmail_copy_tool.commands.analyze.ConfigManager') as mock_config:
+            mock_config.return_value.resolve_account.return_value = {
+                "email": "test@gmail.com",
+                "credentials": "test_creds.json",
+                "token": None
+            }
+            
+            result = self.runner.invoke(app, ["test-account"])
         
         assert result.exit_code == 0
         assert "Analyzing account: test@gmail.com" in result.output
@@ -35,7 +40,7 @@ class TestAnalyzeCommand:
             credentials_path="test_creds.json",
             token_path=None
         )
-        mock_client.count_emails.assert_called_once_with(after=None, label=None)
+        mock_client.count_emails.assert_called_once_with(after=None, before=None, label=None)
 
     @patch.dict('os.environ', {'GMAIL_COPY_TOOL_DEBUG': '0'})
     @patch('gmail_copy_tool.commands.analyze.GmailClient')
@@ -46,14 +51,20 @@ class TestAnalyzeCommand:
         mock_client.count_emails.return_value = 25
         mock_gmail_client.return_value = mock_client
         
-        result = self.runner.invoke(app, [
-            "--account", "test@gmail.com",
-            "--credentials", "test_creds.json",
-            "--token", "test_token.json",
-            "--after", "2023-01-01",
-            "--before", "2023-12-31",
-            "--label", "INBOX"
-        ])
+        # Mock config manager
+        with patch('gmail_copy_tool.commands.analyze.ConfigManager') as mock_config:
+            mock_config.return_value.resolve_account.return_value = {
+                "email": "test@gmail.com",
+                "credentials": "test_creds.json",
+                "token": "test_token.json"
+            }
+            
+            result = self.runner.invoke(app, [
+                "test-account",
+                "--after", "2023-01-01",
+                "--before", "2023-12-31",
+                "--label", "INBOX"
+            ])
         
         assert result.exit_code == 0
         assert "Analyzing account: test@gmail.com" in result.output
@@ -65,7 +76,7 @@ class TestAnalyzeCommand:
             credentials_path="test_creds.json",
             token_path="test_token.json"
         )
-        mock_client.count_emails.assert_called_once_with(after="2023-01-01", label="INBOX")
+        mock_client.count_emails.assert_called_once_with(after="2023-01-01", before="2023-12-31", label="INBOX")
 
     @patch.dict('os.environ', {'GMAIL_COPY_TOOL_DEBUG': '1'})
     @patch('gmail_copy_tool.commands.analyze.GmailClient')
@@ -76,9 +87,15 @@ class TestAnalyzeCommand:
         mock_client.count_emails.return_value = 100
         mock_gmail_client.return_value = mock_client
         
-        result = self.runner.invoke(app, [
-            "--account", "test@gmail.com"
-        ])
+        # Mock config manager
+        with patch('gmail_copy_tool.commands.analyze.ConfigManager') as mock_config:
+            mock_config.return_value.resolve_account.return_value = {
+                "email": "test@gmail.com",
+                "credentials": "test_creds.json",
+                "token": None
+            }
+            
+            result = self.runner.invoke(app, ["test-account"])
         
         assert result.exit_code == 0
         # Verify client was called
@@ -93,11 +110,17 @@ class TestAnalyzeCommand:
         mock_client.count_emails.return_value = 100
         mock_gmail_client.return_value = mock_client
         
-        # We can't easily test the logging import that happens inside the function,
-        # but we can verify the command executes successfully when debug mode is disabled
-        result = self.runner.invoke(app, [
-            "--account", "test@gmail.com"
-        ])
+        # Mock config manager
+        with patch('gmail_copy_tool.commands.analyze.ConfigManager') as mock_config:
+            mock_config.return_value.resolve_account.return_value = {
+                "email": "test@gmail.com",
+                "credentials": "test_creds.json",
+                "token": None
+            }
+            
+            # We can't easily test the logging import that happens inside the function,
+            # but we can verify the command executes successfully when debug mode is disabled
+            result = self.runner.invoke(app, ["test-account"])
         
         assert result.exit_code == 0
         mock_gmail_client.assert_called_once()
@@ -108,9 +131,15 @@ class TestAnalyzeCommand:
         # Setup mock to raise ValueError
         mock_gmail_client.side_effect = ValueError("Invalid credentials format")
         
-        result = self.runner.invoke(app, [
-            "--account", "test@gmail.com"
-        ])
+        # Mock config manager
+        with patch('gmail_copy_tool.commands.analyze.ConfigManager') as mock_config:
+            mock_config.return_value.resolve_account.return_value = {
+                "email": "test@gmail.com",
+                "credentials": "test_creds.json",
+                "token": None
+            }
+            
+            result = self.runner.invoke(app, ["test-account"])
         
         assert result.exit_code == 0
         assert "ERROR: Invalid credentials format" in result.output
@@ -121,9 +150,15 @@ class TestAnalyzeCommand:
         # Setup mock to raise general exception
         mock_gmail_client.side_effect = Exception("Network error")
         
-        result = self.runner.invoke(app, [
-            "--account", "test@gmail.com"
-        ])
+        # Mock config manager
+        with patch('gmail_copy_tool.commands.analyze.ConfigManager') as mock_config:
+            mock_config.return_value.resolve_account.return_value = {
+                "email": "test@gmail.com",
+                "credentials": "test_creds.json",
+                "token": None
+            }
+            
+            result = self.runner.invoke(app, ["test-account"])
         
         assert result.exit_code == 0
         assert "ERROR: Network error" in result.output
@@ -136,9 +171,15 @@ class TestAnalyzeCommand:
         mock_client.count_emails.side_effect = Exception("API error")
         mock_gmail_client.return_value = mock_client
         
-        result = self.runner.invoke(app, [
-            "--account", "test@gmail.com"
-        ])
+        # Mock config manager
+        with patch('gmail_copy_tool.commands.analyze.ConfigManager') as mock_config:
+            mock_config.return_value.resolve_account.return_value = {
+                "email": "test@gmail.com",
+                "credentials": "test_creds.json",
+                "token": None
+            }
+            
+            result = self.runner.invoke(app, ["test-account"])
         
         assert result.exit_code == 0
         assert "ERROR: API error" in result.output
@@ -150,36 +191,46 @@ class TestAnalyzeCommand:
             mock_client.count_emails.return_value = 50
             mock_gmail_client.return_value = mock_client
             
-            result = self.runner.invoke(app, [
-                "--account", "test@gmail.com"
-            ])
+            # Mock config manager
+            with patch('gmail_copy_tool.commands.analyze.ConfigManager') as mock_config:
+                mock_config.return_value.resolve_account.return_value = {
+                    "email": "test@gmail.com",
+                    "credentials": "test_creds.json",
+                    "token": None
+                }
+                
+                result = self.runner.invoke(app, ["test-account"])
             
             assert result.exit_code == 0
             
-            # Should use default credentials file
+            # Should use provided credentials file
             mock_gmail_client.assert_called_once_with(
                 "test@gmail.com",
-                credentials_path="credentials_source.json",
+                credentials_path="test_creds.json",
                 token_path=None
             )
 
     def test_analyze_function_direct_call(self):
-        """Test the analyze function called directly."""
+        """Test the analyze function called directly via CLI."""
         with patch('gmail_copy_tool.commands.analyze.GmailClient') as mock_gmail_client:
             mock_client = MagicMock()
             mock_client.count_emails.return_value = 75
             mock_gmail_client.return_value = mock_client
             
-            # Call the function directly
-            with patch('gmail_copy_tool.commands.analyze.typer.echo') as mock_echo:
-                analyze(
-                    account="direct@gmail.com",
-                    credentials="direct_creds.json",
-                    token="direct_token.json",
-                    after="2023-06-01",
-                    before=None,
-                    label="Sent"
-                )
+            # Mock config manager
+            with patch('gmail_copy_tool.commands.analyze.ConfigManager') as mock_config:
+                mock_config.return_value.resolve_account.return_value = {
+                    "email": "direct@gmail.com",
+                    "credentials": "direct_creds.json",
+                    "token": "direct_token.json"
+                }
+                
+                # Call via CLI with new syntax
+                result = self.runner.invoke(app, [
+                    "test-account",
+                    "--after", "2023-06-01",
+                    "--label", "Sent"
+                ])
                 
                 # Verify calls
                 mock_gmail_client.assert_called_once_with(
@@ -187,9 +238,9 @@ class TestAnalyzeCommand:
                     credentials_path="direct_creds.json",
                     token_path="direct_token.json"
                 )
-                mock_client.count_emails.assert_called_once_with(after="2023-06-01", label="Sent")
+                mock_client.count_emails.assert_called_once_with(after="2023-06-01", before=None, label="Sent")
                 
                 # Verify output
-                echo_calls = [call[0][0] for call in mock_echo.call_args_list]
-                assert "Analyzing account: direct@gmail.com" in echo_calls
-                assert "Total emails: 75" in echo_calls
+                assert result.exit_code == 0
+                assert "Analyzing account: direct@gmail.com" in result.output
+                assert "Total emails: 75" in result.output

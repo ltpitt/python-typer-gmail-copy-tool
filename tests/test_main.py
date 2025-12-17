@@ -1,7 +1,7 @@
 import pytest
 from unittest.mock import patch, MagicMock
 from typer.testing import CliRunner
-from gmail_copy_tool.main import app, hello, credentials_help, check_and_fix_tokens
+from gmail_copy_tool.main import app, credentials_help, check_and_fix_tokens
 
 
 class TestMainApp:
@@ -10,12 +10,6 @@ class TestMainApp:
     def setup_method(self):
         self.runner = CliRunner()
 
-    def test_hello_command(self):
-        """Test the hello command outputs correct message."""
-        result = self.runner.invoke(app, ["hello"])
-        assert result.exit_code == 0
-        assert "Hello from gmail-copy-tool!" in result.output
-
     def test_credentials_help_command(self):
         """Test the credentials-help command outputs help text."""
         result = self.runner.invoke(app, ["credentials-help"])
@@ -23,12 +17,6 @@ class TestMainApp:
         assert "How to obtain credentials.json" in result.output
         assert "Google Cloud Console" in result.output
         assert "OAuth client ID" in result.output
-
-    def test_hello_function_direct(self, capsys):
-        """Test the hello function directly."""
-        hello()
-        captured = capsys.readouterr()
-        assert "Hello from gmail-copy-tool!" in captured.out
 
     def test_credentials_help_function_direct(self, capsys):
         """Test the credentials_help function directly."""
@@ -100,7 +88,7 @@ class TestMainApp:
         assert result.exit_code == 0
         
         # Check that all commands are listed
-        commands = ["analyze", "compare", "copy", "delete-duplicates", "remove-copied", "hello", "credentials-help"]
+        commands = ["analyze", "compare", "copy", "delete-duplicates", "remove-copied", "setup", "list", "credentials-help"]
         for command in commands:
             assert command in result.output
 

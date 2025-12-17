@@ -214,6 +214,3 @@ __marimo__/
 
 # Any token / auth data - Global pattern
 *.json
-
-# Root-level JSON files (credentials, tokens, configs with secrets)
-/*.json

@@ -1,7 +1,9 @@
 import time
 import typer
+from typing import Optional
 from rich import print
 from gmail_copy_tool.core.gmail_client import GmailClient
+from gmail_copy_tool.utils.config import ConfigManager
 import logging
 import sys
 import os  # Import os module to remove the token file
@@ -65,12 +67,34 @@ def fetch_all_emails_by_content_hash(service, user_id):
 
 @app.command()
 def delete_duplicates(
-    account: str = typer.Option(..., help="Email account to delete duplicate emails from"),
-    credentials: str = typer.Option(..., help="Path to OAuth client credentials JSON file"),
-    token: str = typer.Option(None, help="Path to OAuth token file (optional)"),
+    account: str = typer.Argument(..., help="Account nickname"),
+    year: int = typer.Option(None, help="Delete duplicates from specific year (e.g., 2024)")
 ):
-    """Delete duplicate emails in a Gmail account."""
-    client = GmailClient(account, credentials, token, scope="mail.google.com")
+    """Delete duplicate emails in a Gmail account.
+    
+    Examples:
+        gmail-copy-tool delete-duplicates archive3
+        gmail-copy-tool delete-duplicates archive3 --year 2024
+    """
+    # Enable debug logging if GMAIL_COPY_TOOL_DEBUG=1
+    debug_mode = os.environ.get("GMAIL_COPY_TOOL_DEBUG", "0") == "1"
+    if debug_mode:
+        logging.getLogger().setLevel(logging.DEBUG)
+        logger.debug("Debug mode enabled.")
+    
+    # Resolve account from config
+    config_manager = ConfigManager()
+    
+    try:
+        account_info = config_manager.resolve_account(account)
+    except typer.Exit:
+        raise
+    
+    account_email = account_info["email"]
+    account_creds = account_info["credentials"]
+    account_token = account_info["token"]
+    
+    client = GmailClient(account_email, account_creds, account_token, scope="mail.google.com")
     service = client.service
     user_id = 'me'
 

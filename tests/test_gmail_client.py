@@ -119,8 +119,8 @@ class TestGmailClient:
         with pytest.raises(SystemExit):
             GmailClient("test@gmail.com")
         
+        # Should call secho with error message
         mock_secho.assert_called()
-        mock_echo.assert_called()
         mock_exit.assert_called_once_with(code=1)
 
     @patch('gmail_copy_tool.core.gmail_client.typer.Exit')

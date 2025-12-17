@@ -7,6 +7,8 @@ from gmail_copy_tool.commands.copy import copy
 
 from gmail_copy_tool.commands.delete_duplicates import delete_duplicates
 from gmail_copy_tool.commands.remove_copied import remove_copied
+from gmail_copy_tool.commands.setup import setup
+from gmail_copy_tool.commands.list_accounts import list_accounts
 
 
 import logging
@@ -24,12 +26,9 @@ app.command()(compare)
 app.command()(copy)
 app.command()(delete_duplicates)
 app.command()(remove_copied)
+app.command(name="setup")(setup)
+app.command(name="list")(list_accounts)
 
-@app.command()
-def hello():
-    """Print a hello message."""
-    print("Hello from gmail-copy-tool!")
-    
 @app.command()
 def credentials_help():
     """Show how to obtain Gmail API credentials.json."""

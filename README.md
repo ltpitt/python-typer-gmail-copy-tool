@@ -1,157 +1,207 @@
-# python-typer-gmail-copy-tool
-A CLI tool built with [Typer](https://typer.tiangolo.com/) that allows you to analyze, copy, compare, and clean emails between Gmail accounts. Designed for reliability, resumability, and data integrity.
+# Gmail Copy Tool
+
+A simple, powerful CLI tool for managing Gmail accounts: copy emails, verify transfers, and clean up duplicates.
 
 ---
 
-## 📌 Features
+## ✨ Quick Start
 
-- Analyze total email count in a Gmail account
-- Copy all emails (including attachments and metadata) from one Gmail account to another
-- Resume interrupted copy operations automatically
-- Compare source and target accounts to verify copy success
-- Delete emails from source that already exist in target
-- Modular CLI interface with clear commands
-
----
-
-## 🚀 Installation
-
-### For Normal Users
-
-To install the tool as a normal user, run:
-
-```bash
-pip install .
-```
-
-This will install the tool and its dependencies in your environment.
-
-### For Developers
-
-To install the tool in editable mode for development, run:
+### 1. Install
 
 ```bash
 pip install -e .
 ```
 
-This will allow you to make changes to the source code and immediately test them without reinstalling the package.
+### 2. Setup Your Accounts
 
-1. Enable the Gmail API in your Google Cloud Console.
-2. Create OAuth 2.0 credentials.
-3. Download `credentials.json` and place it in your working directory.
-
-### How to obtain `credentials.json` for Gmail API access
-
-1. Go to the [Google Cloud Console](https://console.cloud.google.com/).
-2. Create a new project (or select an existing one).
-3. Navigate to **APIs & Services > Library** and enable the **Gmail API**.
-4. Go to **APIs & Services > Credentials**.
-5. Click **Create Credentials** > **OAuth client ID**.
-   - If prompted, configure the OAuth consent screen first.
-   - Choose **Desktop app** as the application type.
-   - Name it (e.g., "gmail-copy-tool").
-6. Click **Create**. Download the `credentials.json` file.
-7. Place `credentials.json` in your project’s working directory (where you run the CLI).
-
-This file allows your app to request user authorization for Gmail access.
-
----
-
-## 🛠️ Configuration
-
-The tool uses OAuth 2.0 for Gmail access. On first run, it will prompt for authorization and store tokens locally.
-
-- `credentials.json`: OAuth client credentials
-- `token_source.json`: Token for source account
-- `token_target.json`: Token for target account
-- `.gmail-copy-checkpoint.json`: Stores last copied message ID for resume functionality
-
-Additionally, the `check_and_fix_tokens` function ensures that the required tokens are present. If missing, it attempts to fix the issue by running the `delete-duplicates` command for the respective account.
-
----
-
-## 📚 Usage
-
-Run any command with `--help` to see options:
-```bash
-gmail-copy-tool --help
-```
-
----
-
-## 🧪 CLI Commands
-
-### `analyze`
+Run the interactive setup wizard to configure your Gmail accounts:
 
 ```bash
-gmail-copy-tool analyze --account source@gmail.com --token-file token_source.json
+gmail-copy-tool setup
 ```
 
-Counts total number of emails in the specified Gmail account. Uses explicit token file for safety.
+The wizard will:
+- Guide you through creating OAuth credentials in Google Cloud Console
+- Help you authenticate with your Gmail accounts
+- Save your accounts with easy-to-remember nicknames (e.g., "old-account", "new-account")
 
----
-
-### `copy`
+### 3. Start Using It!
 
 ```bash
-gmail-copy-tool copy --source source@gmail.com --target target@gmail.com --source-token token_source.json --target-token token_target.json
+# Copy all emails from one account to another
+gmail-copy-tool copy old-account new-account
+
+# Copy only emails from 2024
+gmail-copy-tool copy old-account new-account --year 2024
+
+# Verify the copy was successful
+gmail-copy-tool compare old-account new-account
+
+# Check how many emails are in an account
+gmail-copy-tool analyze new-account
+
+# See your configured accounts
+gmail-copy-tool list
 ```
 
-Copies all emails from the source account to the target account.
-
-- Includes attachments, labels, and metadata
-- Automatically resumes if interrupted
-- Skips already-copied messages using message ID tracking
-- Uses explicit token files for safety and repeatability
+That's it! No more long command lines with credential paths.
 
 ---
 
-### `compare`
+## 📌 Features
+
+- **Simple Setup**: Interactive wizard guides you through OAuth setup
+- **Easy Commands**: Use account nicknames instead of email addresses and file paths
+- **Resume Support**: Automatically resumes if interrupted
+- **Data Integrity**: Verifies all emails, attachments, and metadata are copied correctly
+- **Year Shortcuts**: Quickly filter by year with `--year 2024`
+- **Smart Comparison**: Uses canonical hashing to detect differences
+
+---
+
+## 🔐 Getting OAuth Credentials
+
+Before you can use this tool, you need to create OAuth credentials in Google Cloud Console:
+
+1. Go to [Google Cloud Console](https://console.cloud.google.com/)
+2. Create a new project (or select an existing one)
+3. Enable the **Gmail API**:
+   - Navigate to **APIs & Services > Library**
+   - Search for "Gmail API" and click **Enable**
+4. Create OAuth credentials:
+   - Go to **APIs & Services > Credentials**
+   - Click **Create Credentials > OAuth client ID**
+   - Configure the consent screen if prompted
+   - Choose **Desktop app** as the application type
+   - Download the credentials JSON file
+5. When running `gmail-copy-tool setup`, provide the path to this credentials file
+
+The setup wizard will guide you through the rest!
+
+---
+
+## 📚 Commands
+
+### Setup Wizard
+```bash
+gmail-copy-tool setup
+```
+Interactive wizard to add Gmail accounts. You'll need:
+- OAuth credentials JSON file (see above)
+- Access to the Gmail account to authorize
+
+### List Accounts
+```bash
+gmail-copy-tool list
+```
+Show all configured accounts with their nicknames and email addresses.
+
+### Copy Emails
+```bash
+gmail-copy-tool copy SOURCE TARGET [OPTIONS]
+```
+
+Examples:
+```bash
+# Copy all emails
+gmail-copy-tool copy old-account new-account
+
+# Copy only 2024 emails
+gmail-copy-tool copy old-account new-account --year 2024
+
+# Copy emails from a specific date range
+gmail-copy-tool copy old-account new-account --after 2024-01-01 --before 2024-06-30
+
+# Copy emails with a specific label
+gmail-copy-tool copy old-account new-account --label "Important"
+```
+
+### Compare Accounts
+```bash
+gmail-copy-tool compare SOURCE TARGET [OPTIONS]
+```
+
+Verify that all emails from SOURCE exist in TARGET.
+
+Examples:
+```bash
+# Compare all emails
+gmail-copy-tool compare old-account new-account
+
+# Compare only 2024 emails
+gmail-copy-tool compare old-account new-account --year 2024
+```
+
+### Analyze Account
+```bash
+gmail-copy-tool analyze ACCOUNT [OPTIONS]
+```
+
+Count emails in an account.
+
+Examples:
+```bash
+# Total email count
+gmail-copy-tool analyze my-account
+
+# Count 2024 emails
+gmail-copy-tool analyze my-account --year 2024
+
+# Count emails with a specific label
+gmail-copy-tool analyze my-account --label "Work"
+```
+
+### Remove Copied Emails
+```bash
+gmail-copy-tool remove-copied SOURCE TARGET
+```
+
+Delete from SOURCE all emails that exist in TARGET. Useful for cleanup after migration.
+
+⚠️ **Warning**: This permanently deletes emails. Use `compare` first to verify!
+
+### Delete Duplicates
+```bash
+gmail-copy-tool delete-duplicates ACCOUNT
+```
+
+Find and delete duplicate emails in an account based on content.
+
+⚠️ **Warning**: This permanently deletes emails.
+
+---
+
+## 🔧 Advanced Usage
+
+### For Integration Tests (Legacy Mode)
+
+The tool still supports the old explicit credential/token syntax for testing:
 
 ```bash
-gmail-copy-tool compare --source source@gmail.com --target target@gmail.com --source-token token_source.json --target-token token_target.json
+gmail-copy-tool copy \
+  --source source@gmail.com \
+  --target target@gmail.com \
+  --credentials-source credentials_source.json \
+  --credentials-target credentials_target.json \
+  --token-source token_source.json \
+  --token-target token_target.json
 ```
 
-Compares source and target accounts to verify that all emails have been copied.
+### Environment Variables
 
-- Uses canonical hashes for robust comparison (ignores Gmail-injected headers)
-- Reports missing or mismatched messages
+- `GMAIL_COPY_TOOL_DEBUG=1`: Enable detailed debug logging
 
 ---
 
-### `remove-copied`
+## 🧪 Testing
 
+### Unit Tests
 ```bash
-gmail-copy-tool remove-copied --source source@gmail.com --target target@gmail.com --source-token token_source.json --target-token token_target.json
+pytest tests/test_*.py -v
 ```
 
-Removes from the source account all emails that are present in the target account (based on canonical hash comparison).
-
-- Safe operation: only deletes emails confirmed present in the target
-- Only emails that were actually copied are deleted; extra emails remain
-- Useful for cleanup after migration to avoid duplicates in the source
-
----
-
-## 🧾 Example Test Config & Testing
-
-An example config file (`tests/test_config_example.json`) is provided to help users run integration tests and automate CLI commands.
-
-**Fields:**
-- `source_account`: Gmail address to copy from
-- `target_account`: Gmail address to copy to
-- `source_token`: OAuth token file for source
-- `target_token`: OAuth token file for target
-- `source_credentials`: Credentials file for source
-- `target_credentials`: Credentials file for target
-- `label`: (optional) Gmail label to filter
-- `after`: (optional) Only emails after this date (YYYY-MM-DD)
-- `before`: (optional) Only emails before this date (YYYY-MM-DD)
-
-**Usage:**
-- Edit the fields to match your Gmail accounts and token/credential files.
-- After editing, rename the file to `tests/test_config.json` to run integration tests. The test runner will only use `test_config.json`.
-
+### Integration Tests
+1. Create `tests/test_config.json`:
 ```json
 {
   "source_account": "source@gmail.com",
@@ -159,97 +209,66 @@ An example config file (`tests/test_config_example.json`) is provided to help us
   "source_token": "token_source.json",
   "target_token": "token_target.json",
   "source_credentials": "credentials_source.json",
-  "target_credentials": "credentials_target.json",
-  "label": null,
-  "after": null,
-  "before": null
+  "target_credentials": "credentials_target.json"
 }
 ```
 
-Integration tests in `tests/test_integration.py` robustly verify all major CLI commands:
+2. Run integration tests:
+```bash
+pytest tests/test_integration.py -v
+```
 
-- **Setup:** Both source and target mailboxes are wiped and populated with known emails before each test.
-- **Assertions:** All data integrity checks use canonical hashes, ignoring Gmail-injected headers for reliability.
-- **Coverage:**
-  - `copy`: Asserts all emails are copied, with hashes matching between source and target.
-  - `compare`: Asserts source and target hashes match after migration.
-  - `remove-copied`: Asserts only emails that were copied are deleted from source, extra emails remain.
-  - `delete-duplicates`: Asserts only true duplicates are deleted, using hash-based matching.
-
----
-
-## 🧠 Behavioral Details
-
-- **Resume Mechanism**: Stores last copied message ID in `.gmail-copy-checkpoint.json`. On restart, resumes from that point.
-- **Comparison Logic**: Uses canonical hashes (ignoring Gmail-injected headers) for robust integrity verification and deduplication.
-- **Data Copied:**
-  - Email body
-  - Attachments
-  - Labels
-  - Thread metadata
-- **Excluded Data:**
-  - Spam folder
-  - Trash folder
-  - Drafts
+Integration tests verify:
+- Email copying with all metadata and attachments
+- Resume functionality after interruption
+- Canonical hash-based comparison
+- Duplicate detection and removal
+- Label preservation
 
 ---
 
-## ⚙️ Environment Variables
+## ⚙️ How It Works
 
-- `GMAIL_COPY_TOOL_DEBUG=1`: Enables debug logging for troubleshooting and development. Shows detailed progress and internal state.
+### Canonical Hashing
+The tool uses "canonical hashing" to compare emails across accounts. This means:
+- Ignores Gmail-injected headers (like `X-Gmail-Labels`)
+- Normalizes date formats
+- Compares based on essential content (From, To, Subject, Body, Attachments)
+- Robust against Gmail's internal modifications
 
----
+### Resume Mechanism
+Copy operations can be interrupted and resumed:
+- Progress is saved in `.gmail-copy-checkpoint.json`
+- Already-copied emails are skipped on resume
+- Safe to run multiple times
 
-## 🛠️ Troubleshooting
-
-- If you see authentication prompts, ensure your token files are present and valid.
-- For IndentationError or import errors, check for duplicate/conflicting code blocks and clean up your source files.
-- For noisy logs, set `GMAIL_COPY_TOOL_DEBUG=0` (default) for production use.
-
----
-
-## ⚠️ Gmail API Limitations & Reliability Notes
-
-This tool is designed to work reliably with the Gmail API, but several limitations and quirks must be considered:
-
-- **Message Comparison:** Gmail can inject headers, modify MIME structure, or change message IDs during migration. Direct comparison by ID or raw content is unreliable. This tool uses canonical hashing (ignoring injected headers and non-essential fields) to robustly verify message integrity across accounts.
-- **API Consistency:** Gmail API operations (copy, delete, label) may not be immediately reflected. Integration tests use explicit waits (sleep) after such operations to ensure changes are visible before verification. This is essential for reliable automated testing and migration.
-- **Rate Limits & Quotas:** Gmail API enforces strict rate limits. The tool implements exponential backoff and retries for sending and modifying messages. If you hit rate limits, the tool will wait and retry automatically, but large migrations may require patience.
-- **Partial Failures:** Gmail API may occasionally fail or return transient errors. All operations are designed to be resumable and idempotent. If interrupted, you can safely rerun commands; only missing or unprocessed messages will be handled.
-- **Labeling & Metadata:** Gmail may delay the application of labels or metadata changes. Tests and migration logic include explicit waits and repeated checks to confirm changes.
-- **Token & Permission Issues:** If tokens expire or permissions change, re-authentication is required. The tool will prompt for re-authorization as needed.
-
-**Best Practices:**
-- Always use explicit token/config files for safety and repeatability.
-- Expect delays and be patient with large inboxes or bulk operations.
-- Use canonical hash-based comparison for true data integrity.
-- Review logs for warnings/errors and retry if needed.
+### Data Integrity
+The tool copies:
+- ✅ Email body (HTML and plain text)
+- ✅ All attachments
+- ✅ Labels
+- ✅ Thread metadata
+- ❌ Spam/Trash (excluded)
+- ❌ Drafts (excluded)
 
 ---
 
-## 🧪 Development Notes
+## 🐛 Troubleshooting
 
-- Built with [Typer](https://typer.tiangolo.com/) for intuitive CLI design
-- Uses `google-api-python-client` for Gmail access
-- Modular structure for easy extension
-- Professional logging: only warnings/errors shown to users, debug/info in debug mode
-- All CLI commands accept explicit token file options for safety and repeatability
-- All integration tests assert true data integrity using canonical hashes
+**"No accounts configured"**
+- Run `gmail-copy-tool setup` to add accounts
 
----
+**"Account not found"**
+- Check `gmail-copy-tool list` to see configured accounts
+- Account nicknames are case-sensitive
 
-## 🧩 Future Enhancements
+**Authentication prompts every time**
+- Make sure your token files are being saved correctly
+- Check file permissions on `~/.gmail-copy-tool/`
 
-- Add filters (by label, date, sender)
-- Support dry-run mode
-- Add concurrency for large inboxes
-- Export logs and reports
-
----
-
-## 🧑‍💻 Contributing
-
-Pull requests welcome :)
+**Rate limit errors**
+- The tool automatically retries with exponential backoff
+- For large migrations, be patient - Gmail API has strict quotas
 
 ---
 

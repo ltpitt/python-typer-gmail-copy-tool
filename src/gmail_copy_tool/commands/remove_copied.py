@@ -1,8 +1,10 @@
 import typer
 import logging
 import sys
+from typing import Optional
 from gmail_copy_tool.core.gmail_client import GmailClient
 from gmail_copy_tool.utils.canonicalization import compute_canonical_hash
+from gmail_copy_tool.utils.config import ConfigManager
 
 app = typer.Typer()
 logger = logging.getLogger(__name__)
@@ -32,17 +34,35 @@ def get_all_message_ids(client):
 
 @app.command()
 def remove_copied(
-    source: str = typer.Option(..., help="Source Gmail account (emails will be removed from here)"),
-    target: str = typer.Option(..., help="Target Gmail account (emails present here will be removed from source)"),
-    credentials_source: str = typer.Option(..., help="Path to OAuth client credentials JSON file for source account"),
-    credentials_target: str = typer.Option(..., help="Path to OAuth client credentials JSON file for target account"),
-    token_source: str = typer.Option(None, help="Path to OAuth token file for source account (optional)"),
-    token_target: str = typer.Option(None, help="Path to OAuth token file for target account (optional)")
+    source: str = typer.Argument(..., help="Source account nickname"),
+    target: str = typer.Argument(..., help="Target account nickname"),
+    year: int = typer.Option(None, help="Remove emails from specific year (e.g., 2024)")
 ):
-    """Delete from source all emails present in target (by Message-ID)."""
-    logger.info(f"Connecting to source ({source}) and target ({target}) accounts...")
-    source_client = GmailClient(source, credentials_source, token_source)
-    target_client = GmailClient(target, credentials_target, token_target)
+    """Delete from source all emails that exist in target (by Message-ID).
+    
+    Examples:
+        gmail-copy-tool remove-copied archive3 archive4
+        gmail-copy-tool remove-copied archive3 archive4 --year 2024
+    """
+    # Resolve accounts from config
+    config_manager = ConfigManager()
+    
+    try:
+        source_account = config_manager.resolve_account(source)
+        target_account = config_manager.resolve_account(target)
+    except typer.Exit:
+        raise
+    
+    source_email = source_account["email"]
+    target_email = target_account["email"]
+    source_creds = source_account["credentials"]
+    target_creds = target_account["credentials"]
+    source_token = source_account["token"]
+    target_token = target_account["token"]
+    
+    logger.info(f"Connecting to source ({source_email}) and target ({target_email}) accounts...")
+    source_client = GmailClient(source_email, source_creds, source_token)
+    target_client = GmailClient(target_email, target_creds, target_token)
     logger.info("Fetching all message IDs from source account...")
     source_ids = get_all_message_ids(source_client)
     logger.info(f"Source account has {len(source_ids)} messages.")

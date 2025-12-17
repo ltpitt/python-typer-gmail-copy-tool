@@ -3,28 +3,34 @@ import logging
 import re
 import time
 from datetime import datetime
+from pathlib import Path
+from typing import Optional
 
 import typer
 from rich.progress import Progress, BarColumn, TextColumn, TimeElapsedColumn, TimeRemainingColumn
 from gmail_copy_tool.core.gmail_client import GmailClient
+from gmail_copy_tool.utils.config import ConfigManager
 
 app = typer.Typer()
 logger = logging.getLogger(__name__)
 
 @app.command()
 def copy(
-    source: str = typer.Option(..., help="Source Gmail account email address"),
-    target: str = typer.Option(..., help="Target Gmail account email address"),
-    credentials_source: str = typer.Option("credentials_source.json", help="Path to source account credentials file (default: credentials_source.json)"),
-    credentials_target: str = typer.Option("credentials_target.json", help="Path to target account credentials file (default: credentials_target.json)"),
-    token_source: str = typer.Option(None, help="Path to OAuth token file for source account (optional)"),
-    token_target: str = typer.Option(None, help="Path to OAuth token file for target account (optional)"),
+    source: str = typer.Argument(..., help="Source account nickname"),
+    target: str = typer.Argument(..., help="Target account nickname"),
     label: str = typer.Option(None, help="Copy only emails with this Gmail label"),
     after: str = typer.Option(None, help="Copy emails after this date (YYYY-MM-DD)"),
     before: str = typer.Option(None, help="Copy emails before this date (YYYY-MM-DD)"),
+    year: int = typer.Option(None, help="Copy emails from specific year (e.g., 2024)"),
     checkpoint: str = typer.Option(None, help="Path to checkpoint file for resume support (optional)")
 ):
-    """Copy all emails from source to target Gmail account."""
+    """Copy all emails from source to target Gmail account.
+    
+    Examples:
+        gmail-copy-tool copy archive3 archive4
+        gmail-copy-tool copy archive3 archive4 --year 2024
+        gmail-copy-tool copy old-account new-account --label "Important"
+    """
     # Enable debug logging if GMAIL_COPY_TOOL_DEBUG=1
     debug_mode = os.environ.get("GMAIL_COPY_TOOL_DEBUG", "0") == "1"
     if debug_mode:
@@ -34,11 +40,32 @@ def copy(
         logging.getLogger().setLevel(logging.INFO)
         logger.info("Debug mode disabled.")
 
-    typer.echo(f"Copying emails: {source} -> {target}")
+    # Handle --year shortcut
+    if year:
+        after = f"{year}-01-01"
+        before = f"{year}-12-31"
+
+    # Resolve accounts from config
+    config_manager = ConfigManager()
+    
+    try:
+        source_account = config_manager.resolve_account(source)
+        target_account = config_manager.resolve_account(target)
+    except typer.Exit:
+        raise
+    
+    source_email = source_account["email"]
+    target_email = target_account["email"]
+    source_creds = source_account["credentials"]
+    target_creds = target_account["credentials"]
+    source_token = source_account["token"]
+    target_token = target_account["token"]
+
+    typer.echo(f"Copying emails: {source_email} -> {target_email}")
 
     try:
-        source_client = GmailClient(source, credentials_path=credentials_source, token_path=token_source, scope="readonly")
-        target_client = GmailClient(target, credentials_path=credentials_target, token_path=token_target, scope="mail.google.com")
+        source_client = GmailClient(source_email, credentials_path=source_creds, token_path=source_token, scope="readonly")
+        target_client = GmailClient(target_email, credentials_path=target_creds, token_path=target_token, scope="mail.google.com")
 
         # Fetch all message IDs from source (with optional filters)
         source_ids = _get_all_message_ids(source_client, label=label, after=after, before=before)

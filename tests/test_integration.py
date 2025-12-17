@@ -1,5 +1,7 @@
 import sys
 import os
+import tempfile
+from pathlib import Path
 
 import email.mime.text
 import logging
@@ -10,6 +12,7 @@ from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
 from google_auth_oauthlib.flow import InstalledAppFlow
 from gmail_copy_tool.main import app
+from gmail_copy_tool.utils.config import ConfigManager
 import base64
 import email
 import hashlib
@@ -45,7 +48,36 @@ TOKEN_SOURCE = _test_config["TOKEN_SOURCE"]
 TOKEN_TARGET = _test_config["TOKEN_TARGET"]
 
 
-def test_remove_copied_command(setup_mailboxes):
+@pytest.fixture
+def test_config():
+    """Create a temporary config directory for testing."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        config_manager = ConfigManager(config_dir=Path(tmpdir))
+        
+        # Add test accounts to config
+        config_manager.add_account_directly(
+            nickname="test-source",
+            email=SOURCE,
+            credentials=CRED_SOURCE,
+            token=TOKEN_SOURCE
+        )
+        config_manager.add_account_directly(
+            nickname="test-target",
+            email=TARGET,
+            credentials=CRED_TARGET,
+            token=TOKEN_TARGET
+        )
+        
+        # Patch ConfigManager to use this temp config
+        with patch('gmail_copy_tool.commands.copy.ConfigManager', return_value=config_manager), \
+             patch('gmail_copy_tool.commands.compare.ConfigManager', return_value=config_manager), \
+             patch('gmail_copy_tool.commands.analyze.ConfigManager', return_value=config_manager), \
+             patch('gmail_copy_tool.commands.delete_duplicates.ConfigManager', return_value=config_manager), \
+             patch('gmail_copy_tool.commands.remove_copied.ConfigManager', return_value=config_manager):
+            yield config_manager
+
+
+def test_remove_copied_command(test_config, setup_mailboxes):
     """
     Test the remove-copied CLI command by copying emails from source to target, then removing them from source if present in target.
     """
@@ -84,27 +116,13 @@ def test_remove_copied_command(setup_mailboxes):
 
     # Run the copy command to migrate only the copied emails to target
     runner = CliRunner()
-    args = [
-        "copy",
-        "--source", SOURCE,
-        "--target", TARGET,
-        "--credentials-source", CRED_SOURCE,
-        "--credentials-target", CRED_TARGET,
-        "--token-source", TOKEN_SOURCE,
-        "--token-target", TOKEN_TARGET,
-    ]
+    args = ["copy", "test-source", "test-target"]
     result = runner.invoke(app, args)
     assert result.exit_code == 0, result.output
 
     # Run the remove-copied command
     args = [
-        "remove-copied",
-        "--source", SOURCE,
-        "--target", TARGET,
-        "--credentials-source", CRED_SOURCE,
-        "--credentials-target", CRED_TARGET,
-        "--token-source", TOKEN_SOURCE,
-        "--token-target", TOKEN_TARGET,
+        "remove-copied", "test-source", "test-target",
     ]
     result = runner.invoke(app, args)
     logging.debug("[DEBUG] remove-copied CLI output:\n%s", result.output)
@@ -358,7 +376,7 @@ def setup_mailboxes():
     cleanup_labels(service_target)
 
 
-def test_copy_preserves_custom_labels(setup_mailboxes):
+def test_copy_preserves_custom_labels(test_config, setup_mailboxes):
     """
     Test that custom labels on source emails are preserved in the target after migration.
     """
@@ -379,13 +397,7 @@ def test_copy_preserves_custom_labels(setup_mailboxes):
     # Run copy
     runner = CliRunner()
     args = [
-        "copy",
-        "--source", SOURCE,
-        "--target", TARGET,
-        "--credentials-source", CRED_SOURCE,
-        "--credentials-target", CRED_TARGET,
-        "--token-source", TOKEN_SOURCE,
-        "--token-target", TOKEN_TARGET,
+        "copy", "test-source", "test-target",
     ]
     result = runner.invoke(app, args)
     assert result.exit_code == 0, result.output
@@ -415,7 +427,7 @@ def test_copy_preserves_custom_labels(setup_mailboxes):
     assert target_label_id and target_label_id in migrated_label_ids, f"Migrated message does not have label '{label_name}' in target"
 
 
-def test_delete_command(setup_mailboxes):
+def test_delete_command(test_config, setup_mailboxes):
     """
     Test the delete functionality by creating emails, deleting them using the helper function, and verifying the mailbox is empty.
     """
@@ -454,7 +466,7 @@ def get_all_gmail_ids(service):
     return ids
 
 
-def test_copy_and_compare_real_accounts(setup_mailboxes):
+def test_copy_and_compare_real_accounts(test_config, setup_mailboxes):
     """
     Test copying and comparing all emails between real accounts.
     """
@@ -477,26 +489,14 @@ def test_copy_and_compare_real_accounts(setup_mailboxes):
     # Run the copy command with real credentials
     runner = CliRunner()
     args = [
-        "copy",
-        "--source", SOURCE,
-        "--target", TARGET,
-        "--credentials-source", CRED_SOURCE,
-        "--credentials-target", CRED_TARGET,
-        "--token-source", TOKEN_SOURCE,
-        "--token-target", TOKEN_TARGET,
+        "copy", "test-source", "test-target",
     ]
     result = runner.invoke(app, args)
     assert result.exit_code == 0, result.output
     assert "Copy operation completed." in result.output
     # Run the compare command with real credentials
     args = [
-        "compare",
-        "--source", SOURCE,
-        "--target", TARGET,
-        "--credentials-source", CRED_SOURCE,
-        "--credentials-target", CRED_TARGET,
-        "--token-source", TOKEN_SOURCE,
-        "--token-target", TOKEN_TARGET,
+        "compare", "test-source", "test-target",
     ]
     result = runner.invoke(app, args)
     assert result.exit_code == 0, result.output
@@ -534,7 +534,7 @@ def test_copy_and_compare_real_accounts(setup_mailboxes):
     )
 
 
-def test_copy_and_compare_date_filter(setup_mailboxes):
+def test_copy_and_compare_date_filter(test_config, setup_mailboxes):
     """
     Test copying and comparing only emails after a certain date.
     """
@@ -562,13 +562,7 @@ def test_copy_and_compare_date_filter(setup_mailboxes):
     # Run copy with --after <after_date>
     runner = CliRunner()
     args = [
-        "copy",
-        "--source", SOURCE,
-        "--target", TARGET,
-        "--credentials-source", CRED_SOURCE,
-        "--credentials-target", CRED_TARGET,
-        "--token-source", TOKEN_SOURCE,
-        "--token-target", TOKEN_TARGET,
+        "copy", "test-source", "test-target",
         "--after", after_date,
     ]
     result = runner.invoke(app, args)
@@ -576,13 +570,7 @@ def test_copy_and_compare_date_filter(setup_mailboxes):
 
     # Run compare with --after <after_date>
     args = [
-        "compare",
-        "--source", SOURCE,
-        "--target", TARGET,
-        "--credentials-source", CRED_SOURCE,
-        "--credentials-target", CRED_TARGET,
-        "--token-source", TOKEN_SOURCE,
-        "--token-target", TOKEN_TARGET,
+        "compare", "test-source", "test-target",
         "--after", after_date,
     ]
     result = runner.invoke(app, args)
@@ -616,7 +604,7 @@ def test_copy_with_invalid_credentials():
     assert result.exit_code != 0
     assert "credentials" in result.output.lower() or "error" in result.output.lower()
 
-def test_delete_duplicates_content_based(setup_mailboxes):
+def test_delete_duplicates_content_based(test_config, setup_mailboxes):
     """
     Test the delete-duplicates CLI command by creating emails with identical content but different Message-IDs,
     and verifying only unique emails remain based on content.
@@ -641,10 +629,7 @@ def test_delete_duplicates_content_based(setup_mailboxes):
     # Run delete-duplicates CLI command
     runner = CliRunner()
     args = [
-        "delete-duplicates",
-        "--account", SOURCE,
-        "--credentials", CRED_SOURCE,
-        "--token", TOKEN_SOURCE,
+        "delete-duplicates", "test-source",
     ]
     result = runner.invoke(app, args)
     print(f"[DEBUG] CLI command output: {result.output}")
@@ -666,7 +651,7 @@ def test_delete_duplicates_content_based(setup_mailboxes):
     assert len(unique_emails) == 2, f"Expected 2 unique emails, found {len(unique_emails)}"
 
 
-def test_analyze_command(setup_mailboxes):
+def test_analyze_command(test_config, setup_mailboxes):
     """
     Test the analyze CLI command by creating emails and verifying the count.
     """
@@ -684,17 +669,13 @@ def test_analyze_command(setup_mailboxes):
 
     # Run analyze CLI command
     runner = CliRunner()
-    args = [
-        "analyze",
-        "--account", SOURCE,
-        "--credentials", CRED_SOURCE,
-    ]
+    args = ["analyze", "test-source"]
     result = runner.invoke(app, args)
     assert result.exit_code == 0, result.output
     assert "Total emails: 3" in result.output, f"Unexpected output: {result.output}"
 
 
-def test_resume_copy_command(tmp_path, setup_mailboxes):
+def test_resume_copy_command(test_config, tmp_path, setup_mailboxes):
     """
     Test that the copy command resumes from a checkpoint and does not re-copy already migrated emails.
     """
@@ -747,10 +728,8 @@ def test_resume_copy_command(tmp_path, setup_mailboxes):
     runner = CliRunner()
     args = [
         "copy",
-        "--source", SOURCE,
-        "--target", TARGET,
-        "--credentials-source", CRED_SOURCE,
-        "--credentials-target", CRED_TARGET,
+        "test-source",
+        "test-target",
         "--checkpoint", str(checkpoint_path),
     ]
     result = runner.invoke(app, args)
@@ -762,4 +741,5 @@ def test_resume_copy_command(tmp_path, setup_mailboxes):
     target_msgids = get_message_ids(service_target)
     for msgid in msgids:
         assert msgid in target_msgids, f"Message-ID {msgid} missing in target after resume copy"
+
 
