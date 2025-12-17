@@ -341,8 +341,9 @@ def cleanup_labels(service):
 
 @pytest.fixture(scope="function")
 def setup_mailboxes():
-    ensure_token(TOKEN_SOURCE, CRED_SOURCE, "https://www.googleapis.com/auth/gmail.modify")
-    ensure_token(TOKEN_TARGET, CRED_TARGET, "https://www.googleapis.com/auth/gmail.modify")
+    # Use full Gmail scope for delete permissions
+    ensure_token(TOKEN_SOURCE, CRED_SOURCE, "https://mail.google.com/")
+    ensure_token(TOKEN_TARGET, CRED_TARGET, "https://mail.google.com/")
     wipe_mailbox(TOKEN_SOURCE)
     wipe_mailbox(TOKEN_TARGET)
     yield
@@ -542,10 +543,10 @@ def test_copy_and_compare_date_filter(setup_mailboxes):
     service_source = build('gmail', 'v1', credentials=creds_source)
 
     # Date filter: only emails after this date should be copied
-    after_date = (datetime.datetime.utcnow() - datetime.timedelta(days=1)).strftime('%a, %d %b %Y %H:%M:%S +0000')
+    after_date = (datetime.datetime.now(datetime.UTC) - datetime.timedelta(days=1)).strftime('%a, %d %b %Y %H:%M:%S +0000')
     test_emails = [
-        {"subject": "Old Email", "body": "Old", "date": (datetime.datetime.utcnow() - datetime.timedelta(days=2)).strftime('%a, %d %b %Y %H:%M:%S +0000')},
-        {"subject": "New Email", "body": "New", "date": (datetime.datetime.utcnow() - datetime.timedelta(hours=1)).strftime('%a, %d %b %Y %H:%M:%S +0000')},
+        {"subject": "Old Email", "body": "Old", "date": (datetime.datetime.now(datetime.UTC) - datetime.timedelta(days=2)).strftime('%a, %d %b %Y %H:%M:%S +0000')},
+        {"subject": "New Email", "body": "New", "date": (datetime.datetime.now(datetime.UTC) - datetime.timedelta(hours=1)).strftime('%a, %d %b %Y %H:%M:%S +0000')},
     ]
     for email_data in test_emails:
         create_test_email(service_source, email_data["subject"], email_data["body"], SOURCE, SOURCE, date=email_data["date"])

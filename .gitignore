@@ -212,9 +212,8 @@ marimo/_static/
 marimo/_lsp/
 __marimo__/
 
-# Any token / auth data
+# Any token / auth data - Global pattern
 *.json
 
-# Notes
-notes.txt
-tests\test_integration.py
+# Root-level JSON files (credentials, tokens, configs with secrets)
+/*.json

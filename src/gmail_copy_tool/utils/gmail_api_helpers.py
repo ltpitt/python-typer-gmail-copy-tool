@@ -50,7 +50,7 @@ def send_with_backoff(send_func, max_retries=5, initial_delay=2, *args, **kwargs
                         retry_time = datetime.strptime(retry_after_utc, "%Y-%m-%dT%H:%M:%S.%fZ").replace(tzinfo=timezone.utc)
                     except ValueError:
                         retry_time = datetime.strptime(retry_after_utc, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
-                    now_dt = datetime.utcnow().replace(tzinfo=timezone.utc)
+                    now_dt = datetime.now(timezone.utc)
                     wait_seconds = max(1, int((retry_time - now_dt).total_seconds()) + SAFETY_MARGIN)
                 else:
                     wait_seconds = delay
