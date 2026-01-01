@@ -28,17 +28,11 @@ The wizard will:
 ### 3. Start Using It!
 
 ```bash
-# Copy all emails from one account to another
-gmail-copy-tool copy old-account new-account
+# Sync all emails from one account to another (interactive)
+gmail-copy-tool sync old-account new-account
 
-# Copy only emails from 2024
-gmail-copy-tool copy old-account new-account --year 2024
-
-# Verify the copy was successful
-gmail-copy-tool compare old-account new-account
-
-# Check how many emails are in an account
-gmail-copy-tool analyze new-account
+# Sync only emails from 2024
+gmail-copy-tool sync old-account new-account --year 2024
 
 # See your configured accounts
 gmail-copy-tool list
@@ -52,10 +46,10 @@ That's it! No more long command lines with credential paths.
 
 - **Simple Setup**: Interactive wizard guides you through OAuth setup
 - **Easy Commands**: Use account nicknames instead of email addresses and file paths
-- **Resume Support**: Automatically resumes if interrupted
-- **Data Integrity**: Verifies all emails, attachments, and metadata are copied correctly
+- **Auto Token Refresh**: Automatically handles expired/revoked tokens
+- **Interactive Sync**: Compare, copy missing emails, and clean up extras in one command
 - **Year Shortcuts**: Quickly filter by year with `--year 2024`
-- **Smart Comparison**: Uses canonical hashing to detect differences
+- **Content-Based Comparison**: Uses fingerprint (subject+from+date+attachments) to detect differences
 
 ---
 
@@ -96,96 +90,45 @@ gmail-copy-tool list
 ```
 Show all configured accounts with their nicknames and email addresses.
 
-### Copy Emails
+### Sync Emails
 ```bash
-gmail-copy-tool copy SOURCE TARGET [OPTIONS]
+gmail-copy-tool sync SOURCE TARGET [OPTIONS]
 ```
+
+Synchronize emails from SOURCE to TARGET account. The command:
+- Compares both accounts using content-based fingerprint (subject + from + date + attachments)
+- Copies missing emails to TARGET
+- Interactively asks if you want to delete extra emails from TARGET
 
 Examples:
 ```bash
-# Copy all emails
-gmail-copy-tool copy old-account new-account
+# Sync all emails
+gmail-copy-tool sync old-account new-account
 
-# Copy only 2024 emails
-gmail-copy-tool copy old-account new-account --year 2024
+# Sync only 2024 emails
+gmail-copy-tool sync old-account new-account --year 2024
 
-# Copy emails from a specific date range
-gmail-copy-tool copy old-account new-account --after 2024-01-01 --before 2024-06-30
+# Sync emails from a specific date range
+gmail-copy-tool sync old-account new-account --after 2024-01-01 --before 2024-06-30
 
-# Copy emails with a specific label
-gmail-copy-tool copy old-account new-account --label "Important"
+# Sync emails with a specific label
+gmail-copy-tool sync old-account new-account --label "Important"
+
+# Show first 10 differences only (no changes made)
+gmail-copy-tool sync old-account new-account --limit 10
 ```
 
-### Compare Accounts
-```bash
-gmail-copy-tool compare SOURCE TARGET [OPTIONS]
-```
-
-Verify that all emails from SOURCE exist in TARGET.
-
-Examples:
-```bash
-# Compare all emails
-gmail-copy-tool compare old-account new-account
-
-# Compare only 2024 emails
-gmail-copy-tool compare old-account new-account --year 2024
-```
-
-### Analyze Account
-```bash
-gmail-copy-tool analyze ACCOUNT [OPTIONS]
-```
-
-Count emails in an account.
-
-Examples:
-```bash
-# Total email count
-gmail-copy-tool analyze my-account
-
-# Count 2024 emails
-gmail-copy-tool analyze my-account --year 2024
-
-# Count emails with a specific label
-gmail-copy-tool analyze my-account --label "Work"
-```
-
-### Remove Copied Emails
-```bash
-gmail-copy-tool remove-copied SOURCE TARGET
-```
-
-Delete from SOURCE all emails that exist in TARGET. Useful for cleanup after migration.
-
-⚠️ **Warning**: This permanently deletes emails. Use `compare` first to verify!
-
-### Delete Duplicates
-```bash
-gmail-copy-tool delete-duplicates ACCOUNT
-```
-
-Find and delete duplicate emails in an account based on content.
-
-⚠️ **Warning**: This permanently deletes emails.
+**Options:**
+- `--year YEAR` - Sync only emails from a specific year
+- `--after DATE` - Sync emails after this date (YYYY-MM-DD)
+- `--before DATE` - Sync emails before this date (YYYY-MM-DD)  
+- `--label LABEL` - Sync only emails with this Gmail label
+- `--limit N` - Show maximum N differences (default: 20)
+- `--show-duplicates` - Show detailed duplicate analysis using content hash
 
 ---
 
 ## 🔧 Advanced Usage
-
-### For Integration Tests (Legacy Mode)
-
-The tool still supports the old explicit credential/token syntax for testing:
-
-```bash
-gmail-copy-tool copy \
-  --source source@gmail.com \
-  --target target@gmail.com \
-  --credentials-source credentials_source.json \
-  --credentials-target credentials_target.json \
-  --token-source token_source.json \
-  --token-target token_target.json
-```
 
 ### Environment Variables
 
@@ -229,18 +172,24 @@ Integration tests verify:
 
 ## ⚙️ How It Works
 
-### Canonical Hashing
-The tool uses "canonical hashing" to compare emails across accounts. This means:
-- Ignores Gmail-injected headers (like `X-Gmail-Labels`)
-- Normalizes date formats
-- Compares based on essential content (From, To, Subject, Body, Attachments)
-- Robust against Gmail's internal modifications
+### Content-Based Fingerprinting
+The tool compares emails using a fingerprint composed of:
+- **Subject** - Email subject line
+- **From** - Sender address  
+- **Date** - Timestamp (first 20 chars to handle timezone variations)
+- **Attachments** - Filename and size for each attachment
 
-### Resume Mechanism
-Copy operations can be interrupted and resumed:
-- Progress is saved in `.gmail-copy-checkpoint.json`
-- Already-copied emails are skipped on resume
-- Safe to run multiple times
+This approach:
+- Is more reliable than Message-ID (which can change across accounts)
+- Detects true duplicates even if Message-IDs differ
+- Handles Gmail's internal modifications gracefully
+
+### Auto Token Refresh
+The tool automatically handles expired or revoked OAuth tokens:
+- Detects `invalid_grant` errors
+- Deletes the expired token file
+- Re-initiates OAuth flow for fresh credentials
+- No manual intervention needed
 
 ### Data Integrity
 The tool copies:
@@ -262,13 +211,19 @@ The tool copies:
 - Check `gmail-copy-tool list` to see configured accounts
 - Account nicknames are case-sensitive
 
-**Authentication prompts every time**
-- Make sure your token files are being saved correctly
-- Check file permissions on `~/.gmail-copy-tool/`
+**Authentication prompts**
+- The tool automatically handles expired/revoked tokens
+- You'll be prompted to re-authenticate when needed
+- Check file permissions on `~/.gmail-copy-tool/` if issues persist
 
 **Rate limit errors**
 - The tool automatically retries with exponential backoff
 - For large migrations, be patient - Gmail API has strict quotas
+
+**Emails not appearing in Gmail**
+- Refresh the page (Ctrl+F5)
+- Check "All Mail" folder
+- Wait a few minutes for synchronization
 
 ---
 

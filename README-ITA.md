@@ -33,7 +33,7 @@ Il wizard ti guiderà attraverso:
 
 I token di autenticazione vengono salvati automaticamente in `~/.gmail-copy-tool/`.
 
-## Comandi Principali
+## Comandi
 
 ### Elenca Account Configurati
 
@@ -43,86 +43,68 @@ gmail-copy-tool list
 
 Mostra tutti gli account che hai configurato.
 
-### Copia Email
+### Sincronizza Email
 
 ```bash
-gmail-copy-tool copy ACCOUNT_ORIGINE ACCOUNT_DESTINAZIONE
+gmail-copy-tool sync ACCOUNT_ORIGINE ACCOUNT_DESTINAZIONE
 ```
 
-Copia tutte le email dall'account di origine all'account di destinazione.
+Sincronizza le email dall'account di origine all'account di destinazione. Il comando:
+- Confronta i due account usando un'impronta digitale del contenuto (subject + from + date + attachments)
+- Copia le email mancanti nella destinazione
+- Chiede se vuoi eliminare le email extra dalla destinazione
 
-**Esempio:**
+**Esempi:**
 ```bash
-gmail-copy-tool copy lavoro personale
+# Sincronizza tutti
+gmail-copy-tool sync vecchio nuovo
+
+# Sincronizza solo email del 2024
+gmail-copy-tool sync vecchio nuovo --year 2024
+
+# Sincronizza email in un intervallo di date
+gmail-copy-tool sync vecchio nuovo --after 2024-01-01 --before 2024-06-30
+
+# Sincronizza email con una label specifica
+gmail-copy-tool sync vecchio nuovo --label "Importante"
 ```
 
 **Opzioni:**
-- `--checkpoint FILE` - Salva progressi in un file checkpoint
-- `--resume FILE` - Riprende da un checkpoint precedente
-- `--batch-size N` - Numero di email da processare per batch (default: 100)
-
-### Confronta Account
-
-```bash
-gmail-copy-tool compare ACCOUNT1 ACCOUNT2
-```
-
-Confronta due account per vedere quali email sono presenti in uno ma non nell'altro.
-
-### Analizza Account
-
-```bash
-gmail-copy-tool analyze ACCOUNT
-```
-
-Mostra statistiche sull'account (numero email, label, dimensioni).
-
-### Rimuovi Email Copiate
-
-```bash
-gmail-copy-tool remove-copied ACCOUNT_ORIGINE ACCOUNT_DESTINAZIONE
-```
-
-Rimuove dall'origine le email già copiate nella destinazione.
-
-### Rimuovi Duplicati
-
-```bash
-gmail-copy-tool delete-duplicates ACCOUNT
-```
-
-Trova e rimuove email duplicate nello stesso account.
+- `--year ANNO` - Sincronizza solo email di un anno specifico
+- `--after DATA` - Sincronizza email dopo questa data (YYYY-MM-DD)
+- `--before DATA` - Sincronizza email prima di questa data (YYYY-MM-DD)
+- `--label LABEL` - Sincronizza solo email con questa label Gmail
+- `--limit N` - Mostra massimo N differenze (default: 20)
 
 ## Esempi d'Uso
 
-### Scenario 1: Copia Completa
+### Scenario 1: Migrazione Completa
 
 ```bash
-# Configura account
+# Configura gli account
 gmail-copy-tool setup
 
-# Copia tutto da "vecchio" a "nuovo" con checkpoint
-gmail-copy-tool copy vecchio nuovo --checkpoint backup.json
+# Sincronizza tutto da "vecchio" a "nuovo"
+gmail-copy-tool sync vecchio nuovo
 
-# Verifica cosa è stato copiato
-gmail-copy-tool compare vecchio nuovo
+# Il comando ti chiederà interattivamente:
+# - Se copiare le email mancanti nella destinazione
+# - Se eliminare le email extra dalla destinazione
 ```
 
-### Scenario 2: Ripristino da Interruzione
+### Scenario 2: Sincronizzazione Anno Specifico
 
 ```bash
-# Riprendi copia interrotta
-gmail-copy-tool copy vecchio nuovo --resume backup.json
+# Sincronizza solo le email del 2024
+gmail-copy-tool sync vecchio nuovo --year 2024
 ```
 
-### Scenario 3: Pulizia Dopo Copia
+### Scenario 3: Verifica Differenze
 
 ```bash
-# Copia email
-gmail-copy-tool copy vecchio nuovo
-
-# Rimuovi dall'account vecchio le email copiate
-gmail-copy-tool remove-copied vecchio nuovo
+# Mostra solo le prime 10 differenze senza modificare nulla
+gmail-copy-tool sync vecchio nuovo --limit 10
+# (Non specificare --sync per modalità solo-lettura)
 ```
 
 ## Risoluzione Problemi
@@ -142,12 +124,13 @@ Se ricevi errori di autenticazione:
 gmail-copy-tool setup
 ```
 
+L'applicazione ora gestisce automaticamente i token scaduti/revocati, richiederà la ri-autenticazione quando necessario.
+
 ### Limiti API Gmail
 
 Google limita il numero di richieste API. Se ricevi errori di rate limiting:
 - L'applicazione riproverà automaticamente
-- Usa `--batch-size` più piccolo per rallentare le richieste
-- Usa i checkpoint per riprendere in caso di interruzione
+- Aspetta qualche minuto prima di riprovare
 
 ## File di Configurazione
 
