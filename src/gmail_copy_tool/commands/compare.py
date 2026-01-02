@@ -3,6 +3,7 @@ import logging
 import base64
 import email
 import hashlib
+import time
 from datetime import datetime
 from typing import Optional
 
@@ -11,6 +12,8 @@ from rich.box import SIMPLE
 from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
+from rich.progress import Progress, SpinnerColumn, BarColumn, TextColumn, TimeElapsedColumn, TimeRemainingColumn
+from rich.progress import Progress, SpinnerColumn, BarColumn, TextColumn, TimeElapsedColumn, TimeRemainingColumn
 
 from gmail_copy_tool.core.gmail_client import GmailClient
 from gmail_copy_tool.utils.canonicalization import compute_canonical_hash
@@ -100,6 +103,66 @@ def get_all_message_ids_with_headers(client, label=None, after=None, before=None
     else:
         label_ids = None
     logger = logging.getLogger(__name__)
+    
+    # Helper function to extract attachments (moved outside loop for reuse)
+    def extract_attachments(parts_list):
+        """Recursively extract attachment filenames and sizes"""
+        att_list = []
+        for part in parts_list:
+            if part.get('filename'):
+                att_list.append({
+                    'filename': part.get('filename'),
+                    'size': part.get('body', {}).get('size', 0)
+                })
+            if part.get('parts'):
+                att_list.extend(extract_attachments(part.get('parts')))
+        return att_list
+    
+    # Helper function to process a single message metadata
+    def process_message_metadata(msg_meta, gmail_id):
+        """Process message metadata and return fingerprint data"""
+        headers = msg_meta.get("payload", {}).get("headers", [])
+        msg_id = None
+        subject = ""
+        from_addr = ""
+        date_str = ""
+        
+        for header in headers:
+            name = header.get("name", "").lower()
+            value = header.get("value", "")
+            if name == "message-id":
+                msg_id = value
+            elif name == "subject":
+                subject = value
+            elif name == "from":
+                from_addr = value
+            elif name == "date":
+                date_str = value
+        
+        # Get attachment info
+        attachments = []
+        payload = msg_meta.get('payload', {})
+        parts = payload.get('parts', [])
+        attachments = extract_attachments(parts)
+        
+        # Create fingerprint: subject + from + date_prefix + attachment_summary
+        # Use only first 20 chars of date to handle slight time variations
+        date_prefix = date_str[:20] if date_str else ""
+        attachment_summary = "|".join(sorted([f"{a['filename']}:{a['size']}" for a in attachments]))
+        fingerprint = f"{subject}||{from_addr}||{date_prefix}||{attachment_summary}"
+        
+        return {
+            "subject": subject,
+            "from": from_addr,
+            "date": date_str,
+            "gmail_id": gmail_id,
+            "message_id": msg_id,
+            "attachments": attachments,
+            "fingerprint": fingerprint
+        }
+    
+    # First, collect all message IDs
+    all_message_ids = []
     while True:
         try:
             results = service.users().messages().list(
@@ -110,67 +173,84 @@ def get_all_message_ids_with_headers(client, label=None, after=None, before=None
                 labelIds=label_ids
             ).execute()
             messages = results.get("messages", [])
-            for msg in messages:
-                msg_meta = service.users().messages().get(userId="me", id=msg["id"], format="metadata").execute()
-                headers = msg_meta.get("payload", {}).get("headers", [])
-                msg_id = None
-                subject = ""
-                from_addr = ""
-                date_str = ""
-                
-                for header in headers:
-                    name = header.get("name", "").lower()
-                    value = header.get("value", "")
-                    if name == "message-id":
-                        msg_id = value
-                    elif name == "subject":
-                        subject = value
-                    elif name == "from":
-                        from_addr = value
-                    elif name == "date":
-                        date_str = value
-                
-                # Get attachment info
-                attachments = []
-                payload = msg_meta.get('payload', {})
-                parts = payload.get('parts', [])
-                
-                def extract_attachments(parts_list):
-                    """Recursively extract attachment filenames and sizes"""
-                    att_list = []
-                    for part in parts_list:
-                        if part.get('filename'):
-                            att_list.append({
-                                'filename': part.get('filename'),
-                                'size': part.get('body', {}).get('size', 0)
-                            })
-                        if part.get('parts'):
-                            att_list.extend(extract_attachments(part.get('parts')))
-                    return att_list
-                
-                attachments = extract_attachments(parts)
-                
-                # Create fingerprint: subject + from + date_prefix + attachment_summary
-                # Use only first 20 chars of date to handle slight time variations
-                date_prefix = date_str[:20] if date_str else ""
-                attachment_summary = "|".join(sorted([f"{a['filename']}:{a['size']}" for a in attachments]))
-                fingerprint = f"{subject}||{from_addr}||{date_prefix}||{attachment_summary}"
-                
-                message_data[fingerprint] = {
-                    "subject": subject,
-                    "from": from_addr,
-                    "date": date_str,
-                    "gmail_id": msg["id"],
-                    "message_id": msg_id,
-                    "attachments": attachments,
-                    "fingerprint": fingerprint
-                }
+            all_message_ids.extend(msg["id"] for msg in messages)
             page_token = results.get("nextPageToken")
             if not page_token:
                 break
         except Exception as e:
             logger.error(f"Failed to fetch message IDs: {e}")
             break
+    
+    # Now fetch metadata in batches of 20 (avoid "too many concurrent requests")
+    BATCH_SIZE = 20
+    total_messages = len(all_message_ids)
+    logger.info(f"Fetching metadata for {total_messages} messages in batches of {BATCH_SIZE}...")
+    
+    for i in range(0, total_messages, BATCH_SIZE):
+        batch_ids = all_message_ids[i:i + BATCH_SIZE]
+        batch = service.new_batch_http_request()
+        
+        # Store results from batch
+        batch_results = {}
+        
+        def create_callback(msg_id):
+            """Create a callback function for this specific message ID"""
+            def callback(request_id, response, exception):
+                if exception is not None:
+                    logger.warning(f"Error fetching message {msg_id}: {exception}")
+                else:
+                    batch_results[msg_id] = response
+            return callback
+        
+        # Add all requests to the batch
+        for msg_id in batch_ids:
+            batch.add(
+                service.users().messages().get(userId=user_id, id=msg_id, format="metadata"),
+                callback=create_callback(msg_id)
+            )
+        
+        # Execute the batch with retry logic for all errors
+        max_retries = 5
+        retry_delay = 2
+        for attempt in range(max_retries):
+            try:
+                batch.execute()
+                break  # Success, exit retry loop
+            except Exception as e:
+                if attempt < max_retries - 1:
+                    error_str = str(e)
+                    # Check if it's a rate limit error (needs longer delay)
+                    if "429" in error_str or "503" in error_str or "quota" in error_str.lower() or "rate" in error_str.lower():
+                        logger.warning(f"Rate limit hit, waiting {retry_delay}s before retry {attempt + 1}/{max_retries}...")
+                        time.sleep(retry_delay)
+                        retry_delay *= 2  # Exponential backoff for rate limits
+                    else:
+                        # Network or other transient errors - shorter retry delay
+                        logger.warning(f"Batch failed ({e}), retrying in 3s... ({attempt + 1}/{max_retries})")
+                        time.sleep(3)
+                    continue
+                else:
+                    # Final attempt failed
+                    logger.error(f"Batch execution failed after {max_retries} attempts: {e}")
+                    break
+        
+        # Process batch results
+        for msg_id, msg_meta in batch_results.items():
+            try:
+                data = process_message_metadata(msg_meta, msg_id)
+                message_data[data["fingerprint"]] = data
+            except Exception as e:
+                logger.warning(f"Error processing message {msg_id}: {e}")
+                continue
+        
+        # Log progress at INFO level so it's always visible
+        processed = min(i + BATCH_SIZE, total_messages)
+        logger.info(f"Progress: {processed}/{total_messages} messages fetched ({100*processed//total_messages}%)")
+        
+        # Add 1 second delay between batches to avoid rate limits
+        if i + BATCH_SIZE < total_messages:
+            time.sleep(1.0)
+    
     return message_data
 
 @app.command()
@@ -230,18 +310,25 @@ def compare(
     
     logger.info(f"Starting comparison: SOURCE={source_email}, TARGET={target_email}")
     
+    # Track timing for each phase
+    timings = {}
+    
     if debug_mode:
         logger.debug("Fetching all Message-IDs for source...")
     logger.info(f"Fetching messages from SOURCE: {source_email}")
+    start_time = time.time()
     source_message_data = get_all_message_ids_with_headers(source_client, label=label, after=after, before=before)
-    logger.info(f"SOURCE fetch complete: {len(source_message_data)} messages found")
+    timings['source_fetch'] = time.time() - start_time
+    logger.info(f"SOURCE fetch complete: {len(source_message_data)} messages found (took {timings['source_fetch']:.1f}s)")
     
     if debug_mode:
         logger.debug(f"Source has {len(source_message_data)} messages")
         logger.debug("Fetching all Message-IDs for target...")
     logger.info(f"Fetching messages from TARGET: {target_email}")
+    start_time = time.time()
     target_message_data = get_all_message_ids_with_headers(target_client, label=label, after=after, before=before)
-    logger.info(f"TARGET fetch complete: {len(target_message_data)} messages found")
+    timings['target_fetch'] = time.time() - start_time
+    logger.info(f"TARGET fetch complete: {len(target_message_data)} messages found (took {timings['target_fetch']:.1f}s)")
     
     if debug_mode:
         logger.debug(f"Target has {len(target_message_data)} messages")
@@ -388,58 +475,77 @@ def compare(
         # Process missing emails - copy to target
         if missing_in_target:
             logger.info(f"Starting copy phase: {len(missing_in_target)} emails to copy")
-            console.print(f"\n[bold red]📥 COPYING MISSING EMAILS TO TARGET: {len(missing_in_target)} emails[/bold red]")
+            console.print(f"\n[bold green]📧 COPYING MISSING EMAILS TO TARGET: {len(missing_in_target)} emails[/bold green]")
+            console.print(f"[cyan]Copying from {source_email} to {target_email}[/cyan]\n")
             
             sorted_missing = sorted(missing_in_target)
             logger.debug(f"First 5 fingerprints to copy: {[fp[:80] for fp in sorted_missing[:5]]}")
             
-            for i, fingerprint in enumerate(sorted_missing, 1):
-                data = source_message_data[fingerprint]
-                logger.info(f"[{i}/{len(missing_in_target)}] Copying fingerprint: {fingerprint[:80]}...")
-                logger.info(f"  Message-ID: {data.get('message_id', 'N/A')[:50]}")
+            copy_start = time.time()
+            
+            with Progress(
+                SpinnerColumn(),
+                TextColumn("[progress.description]{task.description}"),
+                BarColumn(),
+                TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
+                TextColumn("({task.completed}/{task.total})"),
+                TimeElapsedColumn(),
+                TextColumn("|"),
+                TimeRemainingColumn(),
+                console=console,
+            ) as progress:
+                task = progress.add_task("[cyan]Copying emails...", total=len(sorted_missing))
                 
-                console.print(f"\n[cyan]Email {i}/{len(missing_in_target)}:[/cyan]")
-                console.print(f"  Date: {data['date'][:40]}")
-                console.print(f"  From: {data['from'][:60]}")
-                console.print(f"  Subject: {data['subject'][:80]}")
-                console.print(f"  Attachments: {len(data['attachments'])} file(s)")
-                console.print(f"  Gmail ID (source): {data['gmail_id']}")
-                console.print(f"  Message-ID: {data.get('message_id', 'N/A')[:60]}")
-                
-                # Get the full email from source and copy to target
-                try:
-                    logger.debug(f"Fetching raw email from SOURCE, gmail_id={data['gmail_id']}")
-                    source_msg = source_client.service.users().messages().get(
-                        userId="me", id=data['gmail_id'], format="raw"
-                    ).execute()
-                    raw_email = source_msg.get('raw', '')
+                for i, fingerprint in enumerate(sorted_missing, 1):
+                    data = source_message_data[fingerprint]
                     
-                    if not raw_email:
-                        logger.error(f"FAILED: No raw email data for gmail_id={data['gmail_id']}")
-                        console.print(f"[red]✗ Failed: No email content received[/red]")
-                        copy_errors.append(f"No content: {fingerprint[:50]}")
-                        continue
+                    # Update progress description with current email subject
+                    subject_preview = data['subject'][:45] + '...' if len(data['subject']) > 45 else data['subject']
+                    progress.update(task, description=f"[cyan]{subject_preview}")
                     
-                    logger.debug(f"Raw email size: {len(raw_email)} chars")
-                    logger.debug(f"Inserting into TARGET account {target_email}")
+                    logger.info(f"[{i}/{len(missing_in_target)}] Copying fingerprint: {fingerprint[:80]}...")
+                    logger.info(f"  Message-ID: {data.get('message_id', 'N/A')[:50]}")
                     
-                    # Insert into target
-                    result = target_client.service.users().messages().insert(
-                        userId="me", body={"raw": raw_email}, internalDateSource="dateHeader"
-                    ).execute()
+                    # Get the full email from source and copy to target
+                    try:
+                        logger.debug(f"Fetching raw email from SOURCE, gmail_id={data['gmail_id']}")
+                        source_msg = source_client.service.users().messages().get(
+                            userId="me", id=data['gmail_id'], format="raw"
+                        ).execute()
+                        raw_email = source_msg.get('raw', '')
+                        
+                        if not raw_email:
+                            logger.error(f"FAILED: No raw email data for gmail_id={data['gmail_id']}")
+                            copy_errors.append(f"No content: {fingerprint[:50]}")
+                            progress.advance(task)
+                            continue
+                        
+                        logger.debug(f"Raw email size: {len(raw_email)} chars")
+                        logger.debug(f"Inserting into TARGET account {target_email}")
+                        
+                        # Insert into target
+                        result = target_client.service.users().messages().insert(
+                            userId="me", body={"raw": raw_email}, internalDateSource="dateHeader"
+                        ).execute()
+                        
+                        new_gmail_id = result.get('id', 'unknown')
+                        logger.info(f"SUCCESS: Copied to TARGET, new gmail_id={new_gmail_id}")
+                        copied_count += 1
+                        
+                    except Exception as e:
+                        logger.error(f"FAILED to copy: {e}", exc_info=True)
+                        copy_errors.append(f"{fingerprint[:50]}: {str(e)}")
                     
-                    new_gmail_id = result.get('id', 'unknown')
-                    logger.info(f"SUCCESS: Copied to TARGET, new gmail_id={new_gmail_id}")
-                    console.print(f"[green]✓ Copied to {target_email} (new ID: {new_gmail_id})[/green]")
-                    copied_count += 1
-                    
-                except Exception as e:
-                    logger.error(f"FAILED to copy: {e}", exc_info=True)
-                    console.print(f"[red]✗ Failed to copy: {e}[/red]")
-                    copy_errors.append(f"{fingerprint[:50]}: {str(e)}")
+                    progress.advance(task)
+            
+            timings['copy_phase'] = time.time() - copy_start
+            logger.info(f"Copy phase complete (took {timings['copy_phase']:.1f}s)")
+        else:
+            timings['copy_phase'] = 0
         
         # Process extra emails - ask user to delete from target
         if extra_in_target:
+            delete_start = time.time()
             logger.info(f"Starting delete phase: {len(extra_in_target)} extra emails in target")
             console.print(f"\n[bold yellow]🗑 DELETING EXTRA EMAILS FROM TARGET: {len(extra_in_target)} emails not in source[/bold yellow]")
             console.print(f"[red]These emails exist in {target_email} but NOT in {source_email}[/red]\n")
@@ -509,6 +615,14 @@ def compare(
                     logger.info("Skipped deletion")
                     console.print(f"[dim]→ Skipped (kept in {target_email})[/dim]")
                     skipped_count += 1
+            
+            timings['delete_phase'] = time.time() - delete_start
+            logger.info(f"Delete phase complete (took {timings['delete_phase']:.1f}s)")
+        else:
+            timings['delete_phase'] = 0
+        
+        # Calculate total time
+        timings['total'] = sum(timings.values())
         
         # Summary
         logger.info("SYNC COMPLETE")
@@ -536,5 +650,19 @@ def compare(
             if len(delete_errors) > 10:
                 console.print(f"  [dim]... and {len(delete_errors) - 10} more[/dim]")
         
-        console.print(f"\n[bold white]Run 'compare {source} {target}' again to verify accounts are identical.[/bold white]")
-        logger.info(f"Sync summary logged. Check logs for details.")
+        # Timing summary
+        console.print(f"\n[bold cyan]⏱ Performance Summary:[/bold cyan]")
+        timing_table = Table(show_header=True, header_style="bold cyan", box=None, pad_edge=False)
+        timing_table.add_column("Phase", style="cyan", justify="left")
+        timing_table.add_column("Time", style="green", justify="right")
+        timing_table.add_row("Fetch source emails", f"{timings['source_fetch']:.1f}s")
+        timing_table.add_row("Fetch target emails", f"{timings['target_fetch']:.1f}s")
+        if timings['copy_phase'] > 0:
+            timing_table.add_row(f"Copy {copied_count} emails", f"{timings['copy_phase']:.1f}s")
+        if timings['delete_phase'] > 0:
+            timing_table.add_row(f"Delete {deleted_count} emails", f"{timings['delete_phase']:.1f}s")
+        timing_table.add_row("[bold]TOTAL TIME[/bold]", f"[bold]{timings['total']:.1f}s[/bold]")
+        console.print(timing_table)
+        
+        console.print(f"\n[bold white]Run 'gmail-copy-tool sync {source} {target}' again to verify accounts are identical.[/bold white]")
+        logger.info(f"Sync summary logged. Total time: {timings['total']:.1f}s")
