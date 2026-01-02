@@ -4,7 +4,7 @@ import time
 
 screen_width, screen_height = pyautogui.size()
 
-interval_range_seconds = (50, 100)
+interval_range_seconds = (30, 60)
 duration_range_seconds = (0.3, 0.7)
 long_pause_chance = 0.1  # 10% chance of a long pause
 long_pause_range_seconds = (30, 60)

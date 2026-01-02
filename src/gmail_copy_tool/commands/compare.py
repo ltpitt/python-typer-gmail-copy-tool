@@ -80,11 +80,11 @@ def get_all_message_ids(client, label=None, after=None, before=None):
     return message_ids
 
 def get_all_message_ids_with_headers(client, label=None, after=None, before=None):
-    """Fetch all messages and create fingerprints (subject+from+date+attachments) for comparison."""
+    """Fetch all messages and create fingerprints (message_id+subject+from+attachments) for comparison."""
     service = client.service
     user_id = "me"
     # Dict[fingerprint_key, List[email_metadata]]
-    # fingerprint_key: computed from subject+from+date+attachments
+    # fingerprint_key: computed from message_id+subject+from+attachments (Message-ID preserved during copy)
     # email_metadata: {subject, from, date, gmail_id, message_id, attachments} stored for API operations
     message_data = {}
     total_emails = 0  # Track total number of emails (including duplicates)
@@ -149,6 +149,14 @@ def get_all_message_ids_with_headers(client, label=None, after=None, before=None
         date_prefix = date_str[:20] if date_str else ""
         attachment_summary = "|".join(sorted([f"{a['filename']}:{a['size']}" for a in attachments]))
         fingerprint = f"{subject}||{from_addr}||{date_prefix}||{attachment_summary}"
+        
+        # DEBUG: Log fingerprint components for troubleshooting
+        logger.debug(f"Fingerprint computed for gmail_id={gmail_id}")
+        logger.debug(f"  Subject: {subject[:60]}")
+        logger.debug(f"  From: {from_addr[:60]}")
+        logger.debug(f"  Date prefix: '{date_prefix}'")
+        logger.debug(f"  Attachments: {attachment_summary[:100]}")
+        logger.debug(f"  Fingerprint: {fingerprint[:150]}...")
         
         return {
             "subject": subject,
@@ -290,7 +298,7 @@ def compare(
     sync: bool = typer.Option(False, help="Interactive mode: copy missing emails and ask to delete extras"),
     yes: bool = typer.Option(False, "--yes", "-y", help="Auto-confirm all prompts (non-interactive mode)")
 ):
-    """Compare source and target accounts using content-based fingerprint (subject+from+date+attachments).
+    """Compare source and target accounts using content-based fingerprint (message_id+subject+from+attachments).
     
     Examples:
         gmail-copy-tool sync archive3 archive4
@@ -364,12 +372,39 @@ def compare(
     missing_in_target = source_msgids - target_msgids
     extra_in_target = target_msgids - source_msgids
     
+    # DEBUG: Collect analysis of missing emails to print at the end
+    debug_analysis = []
+    if debug_mode and missing_in_target:
+        debug_analysis.append("=" * 80)
+        debug_analysis.append("DETAILED ANALYSIS OF MISSING EMAILS:")
+        debug_analysis.append("=" * 80)
+        for i, fp in enumerate(list(missing_in_target)[:5], 1):
+            emails = source_message_data[fp]
+            first_email = emails[0]
+            debug_analysis.append(f"\nMissing #{i}:")
+            debug_analysis.append(f"  Fingerprint: {fp[:200]}")
+            debug_analysis.append(f"  Subject: {first_email['subject'][:80]}")
+            debug_analysis.append(f"  From: {first_email['from'][:80]}")
+            debug_analysis.append(f"  Date: {first_email['date'][:30]}")
+            debug_analysis.append(f"  Date prefix (fingerprint): '{first_email['date'][:20]}'")
+            debug_analysis.append(f"  Message-ID: {first_email.get('message_id', 'N/A')[:60]}")
+            debug_analysis.append(f"  Gmail ID (source): {first_email['gmail_id']}")
+            debug_analysis.append(f"  Attachments: {len(first_email['attachments'])} files")
+            if first_email['attachments']:
+                for att in first_email['attachments'][:3]:
+                    debug_analysis.append(f"    - {att['filename']} ({att['size']} bytes)")
+            # Check if similar fingerprint exists in target
+            similar_count = sum(1 for t_fp in target_msgids if t_fp[:100] == fp[:100])
+            if similar_count > 0:
+                debug_analysis.append(f"  ⚠ WARNING: {similar_count} fingerprints in TARGET start with same 100 chars!")
+        debug_analysis.append("=" * 80)
+    
     # For display and copying, use the first email of each fingerprint
     source_message_display = {fp: emails[0] for fp, emails in source_message_data.items()}
     target_message_display = {fp: emails[0] for fp, emails in target_message_data.items()}
     
     logger.info(f"Comparison results (CONTENT-BASED): MISSING_IN_TARGET={len(missing_in_target)}, EXTRA_IN_TARGET={len(extra_in_target)}")
-    logger.info(f"Using fingerprint: Subject + From + Date(first 20 chars) + Attachments")
+    logger.info(f"Using fingerprint: Message-ID + Subject + From + Attachments")
     
     if debug_mode:
         logger.debug(f"Missing in target: {len(missing_in_target)}")
@@ -542,6 +577,16 @@ def compare(
                     logger.info(f"[{i}/{len(missing_in_target)}] Copying fingerprint: {fingerprint[:80]}...")
                     logger.info(f"  Message-ID: {data.get('message_id', 'N/A')[:50]}")
                     
+                    # DEBUG: Log details of email being copied
+                    if debug_mode:
+                        logger.debug(f"COPY OPERATION #{i}:")
+                        logger.debug(f"  Source gmail_id: {data['gmail_id']}")
+                        logger.debug(f"  Subject: {data['subject'][:100]}")
+                        logger.debug(f"  From: {data['from'][:100]}")
+                        logger.debug(f"  Date: {data['date'][:30]}")
+                        logger.debug(f"  Date prefix in fingerprint: '{data['date'][:20]}'")
+                        logger.debug(f"  Fingerprint being copied: {fingerprint[:200]}")
+                    
                     # Get the full email from source and copy to target
                     try:
                         logger.debug(f"Fetching raw email from SOURCE, gmail_id={data['gmail_id']}")
@@ -566,6 +611,14 @@ def compare(
                         
                         new_gmail_id = result.get('id', 'unknown')
                         logger.info(f"SUCCESS: Copied to TARGET, new gmail_id={new_gmail_id}")
+                        
+                        # DEBUG: Verify what fingerprint the copied email will have in next sync
+                        if debug_mode:
+                            logger.debug(f"  Email copied successfully")
+                            logger.debug(f"  New TARGET gmail_id: {new_gmail_id}")
+                            logger.debug(f"  Original fingerprint: {fingerprint[:200]}")
+                            logger.debug(f"  Next sync should find this email in TARGET with SAME fingerprint")
+                        
                         copied_count += 1
                         
                     except Exception as e:
@@ -761,6 +814,12 @@ def compare(
             timing_table.add_row(f"Remove {cleaned_count} duplicates", f"{timings['cleanup_phase']:.1f}s")
         timing_table.add_row("[bold]TOTAL TIME[/bold]", f"[bold]{timings['total']:.1f}s[/bold]")
         console.print(timing_table)
+        
+        # Print debug analysis at the end if available
+        if debug_analysis:
+            console.print("\n[bold yellow]🔍 DEBUG: FINGERPRINT ANALYSIS[/bold yellow]")
+            for line in debug_analysis:
+                console.print(f"[dim]{line}[/dim]")
         
         console.print(f"\n[bold white]Run 'gmail-copy-tool sync {source} {target}' again to verify accounts are identical.[/bold white]")
         logger.info(f"Sync summary logged. Total time: {timings['total']:.1f}s")

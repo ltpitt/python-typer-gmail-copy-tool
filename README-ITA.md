@@ -139,13 +139,32 @@ gmail-copy-tool sync ORIGINE DESTINAZIONE [OPZIONI]
 ```
 
 Sincronizza le email dall'account ORIGINE all'account DESTINAZIONE. Il comando:
-- Confronta entrambi gli account usando un'impronta basata sul contenuto (subject + from + date + allegati)
+- Confronta entrambi gli account usando un'impronta basata sul contenuto (Message-ID + subject + from + allegati)
 - Mostra il conteggio delle email totali vs uniche (rileva duplicati)
 - Copia le email mancanti nella DESTINAZIONE
 - Chiede interattivamente se vuoi eliminare le email extra dalla DESTINAZIONE (o elimina automaticamente con `--yes`)
 - **Rimuove automaticamente le email duplicate dalla DESTINAZIONE** (mantiene la copia più vecchia)
 - Mostra bellissime barre di progresso in tempo reale per tutte le operazioni
 - Visualizza un riepilogo dettagliato dei tempi di esecuzione
+
+**📋 Comando Completo (Copia-Incolla Pronto):**
+
+**Windows (PowerShell):**
+```powershell
+.venv\Scripts\activate; $env:GMAIL_COPY_TOOL_DEBUG="1"; gmail-copy-tool sync ORIGINE DESTINAZIONE --yes
+```
+
+**Mac/Linux:**
+```bash
+source .venv/bin/activate && GMAIL_COPY_TOOL_DEBUG=1 gmail-copy-tool sync ORIGINE DESTINAZIONE --yes
+```
+
+Sostituisci `ORIGINE` e `DESTINAZIONE` con i tuoi nickname degli account (es. `vecchio` e `nuovo`).
+
+Questo comando:
+- ✅ Attiva automaticamente l'ambiente virtuale
+- ✅ Abilita il debug per log dettagliati
+- ✅ Esegue la sincronizzazione completamente automatica (nessuna domanda)
 
 Esempi:
 ```bash

@@ -141,9 +141,32 @@ gmail-copy-tool sync SOURCE TARGET [OPTIONS]
 ```
 
 Synchronize emails from SOURCE to TARGET account. The command:
-- Compares both accounts using content-based fingerprint (subject + from + date + attachments)
+- Compares both accounts using content-based fingerprint (Message-ID + subject + from + attachments)
+- Shows you total vs unique email counts (detects duplicates)
 - Copies missing emails to TARGET
-- Interactively asks if you want to delete extra emails from TARGET
+- Interactively asks if you want to delete extra emails from TARGET (or auto-deletes with `--yes`)
+- **Automatically removes duplicate emails from TARGET** (keeps oldest copy)
+- Shows beautiful real-time progress bars for all operations
+- Displays detailed performance timing summary
+
+**📋 Complete Command (Copy-Paste Ready):**
+
+**Windows (PowerShell):**
+```powershell
+.venv\Scripts\activate; $env:GMAIL_COPY_TOOL_DEBUG="1"; gmail-copy-tool sync SOURCE TARGET --yes
+```
+
+**Mac/Linux:**
+```bash
+source .venv/bin/activate && GMAIL_COPY_TOOL_DEBUG=1 gmail-copy-tool sync SOURCE TARGET --yes
+```
+
+Replace `SOURCE` and `TARGET` with your account nicknames (e.g., `old-account` and `new-account`).
+
+This command:
+- ✅ Automatically activates the virtual environment
+- ✅ Enables debug mode for detailed logs
+- ✅ Runs fully automated sync (no questions asked)
 
 Examples:
 ```bash
