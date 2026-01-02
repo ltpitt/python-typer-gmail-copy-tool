@@ -25,10 +25,11 @@ def sync_wrapper(
     before: str = None,
     year: int = None,
     limit: int = 20,
-    show_duplicates: bool = False
+    show_duplicates: bool = False,
+    yes: bool = False
 ):
     """Sync source to target: copy missing emails and delete extras."""
-    compare(source, target, label, after, before, year, limit, show_duplicates, sync=True)
+    compare(source, target, label, after, before, year, limit, show_duplicates, sync=True, yes=yes)
 
 app.command(name="sync")(sync_wrapper)
 app.command(name="setup")(setup)

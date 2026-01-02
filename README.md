@@ -4,15 +4,48 @@ A simple, powerful CLI tool for managing Gmail accounts: copy emails, verify tra
 
 ---
 
-## ✨ Quick Start
+## ✨ Quick Start (Step-by-Step for Beginners)
 
-### 1. Install
+### 1. Download and Open the Project
+
+1. Download or clone this project to your computer
+2. Open a terminal/command prompt
+3. Navigate to the project folder:
+   ```bash
+   cd path\to\python-typer-gmail-copy-tool
+   ```
+
+### 2. Create and Activate Virtual Environment
+
+**On Windows:**
+```bash
+# Create virtual environment (only needed once)
+python -m venv .venv
+
+# Activate it (do this every time you open a new terminal)
+.venv\Scripts\activate
+```
+
+**On Mac/Linux:**
+```bash
+# Create virtual environment (only needed once)
+python3 -m venv .venv
+
+# Activate it (do this every time you open a new terminal)
+source .venv/bin/activate
+```
+
+You'll know it's activated when you see `(.venv)` at the start of your terminal line.
+
+### 3. Install the Tool
 
 ```bash
 pip install -e .
 ```
 
-### 2. Setup Your Accounts
+This installs the `gmail-copy-tool` command.
+
+### 4. Setup Your Accounts
 
 Run the interactive setup wizard to configure your Gmail accounts:
 
@@ -25,7 +58,7 @@ The wizard will:
 - Help you authenticate with your Gmail accounts
 - Save your accounts with easy-to-remember nicknames (e.g., "old-account", "new-account")
 
-### 3. Start Using It!
+### 5. Start Using It!
 
 ```bash
 # Sync all emails from one account to another (interactive)
@@ -34,19 +67,27 @@ gmail-copy-tool sync old-account new-account
 # Sync only emails from 2024
 gmail-copy-tool sync old-account new-account --year 2024
 
+# Fully automated sync (no questions asked)
+gmail-copy-tool sync old-account new-account --yes
+
 # See your configured accounts
 gmail-copy-tool list
 ```
 
-That's it! No more long command lines with credential paths.
+**Remember:** Always activate the virtual environment first! If you see "command not found", run `.venv\Scripts\activate` (Windows) or `source .venv/bin/activate` (Mac/Linux).
 
 ---
-
-## 📌 Features
-
+Beginner Friendly**: Clear step-by-step instructions, no complex commands
 - **Simple Setup**: Interactive wizard guides you through OAuth setup
 - **Easy Commands**: Use account nicknames instead of email addresses and file paths
 - **Auto Token Refresh**: Automatically handles expired/revoked tokens
+- **Interactive Sync**: Compare, copy missing emails, and clean up extras in one command
+- **Automatic Duplicate Removal**: Finds and removes duplicate emails from target account
+- **Non-Interactive Mode**: Use `--yes` flag for fully automated sync
+- **Visual Progress Bars**: Beautiful real-time progress indicators
+- **Year Shortcuts**: Quickly filter by year with `--year 2024`
+- **Content-Based Comparison**: Uses fingerprint (subject+from+date+attachments) to detect differences
+- **Batch Processing**: Handles thousands of emails efficiently with smart rate limiting
 - **Interactive Sync**: Compare, copy missing emails, and clean up extras in one command
 - **Year Shortcuts**: Quickly filter by year with `--year 2024`
 - **Content-Based Comparison**: Uses fingerprint (subject+from+date+attachments) to detect differences
@@ -89,8 +130,12 @@ Interactive wizard to add Gmail accounts. You'll need:
 gmail-copy-tool list
 ```
 Show all configured accounts with their nicknames and email addresses.
-
-### Sync Emails
+Shows you total vs unique email counts (detects duplicates)
+- Copies missing emails to TARGET
+- Interactively asks if you want to delete extra emails from TARGET (or auto-deletes with `--yes`)
+- **Automatically removes duplicate emails from TARGET** (keeps oldest copy)
+- Shows beautiful real-time progress bars for all operations
+- Displays detailed performance timing summary
 ```bash
 gmail-copy-tool sync SOURCE TARGET [OPTIONS]
 ```
@@ -108,14 +153,50 @@ gmail-copy-tool sync old-account new-account
 # Sync only 2024 emails
 gmail-copy-tool sync old-account new-account --year 2024
 
-# Sync emails from a specific date range
-gmail-copy-tool sync old-account new-account --after 2024-01-01 --before 2024-06-30
+# Fully automated sync (no prompts, auto-confirm all)
+gmail-copy-tool sync old-account new-account --yes
+```
 
-# Sync emails with a specific label
-gmail-copy-tool sync old-account new-account --label "Important"
+**Options:**
+- `--yes` / `-y` - Auto-confirm all prompts (non-interactive mode for automation)
+- `--year YEAR` - Sync only emails from a specific year
+- `--after DATE` - Sync emails after this date (YYYY-MM-DD)
+- `--before DATE` - Sync emails before this date (YYYY-MM-DD)  
+- `--label LABEL` - Sync only emails with this Gmail label
+- `--limit N` - Show maximum N differences (default: 20)
+- `--show-duplicates` - Show detailed duplicate analysis using content hash
 
-# Show first 10 differences only (no changes made)
-gmail-copy-tool sync old-account new-account --limit 10
+**What Happens During Sync:**
+1. **Fetch & Compare**: Downloads metadata from both accounts with visual progress
+2. **Copy Missing**: Copies emails that exist in SOURCE bu
+
+### Automation with --yes Flag
+
+Use the `--yes` flag to run syncs without any user interaction:
+
+```bash
+# Fully automated sync (perfect for scheduled tasks)
+gmail-copy-tool sync source-account target-account --yes
+```
+
+This will:
+- Auto-confirm the initial sync prompt
+- Automatically delete all extra emails without asking
+- Automatically remove duplicates
+- Run from start to finish with zero user input
+
+Perfect for scheduled tasks or batch processing!
+
+### Handling Duplicates
+
+The tool automatically detects and removes duplicates during sync:
+- **Detection**: Uses fingerprint (subject + from + date + attachments) to find identical emails
+- **Removal**: Keeps the oldest copy, deletes the rest
+- **Target Only**: Only removes duplicates from TARGET account, SOURCE is never modified
+- **Automatic**: No configuration needed, happens during every synct not in TARGET
+3. **Delete Extras**: Asks if you want to delete emails in TARGET that don't exist in SOURCE
+4. **Remove Duplicates**: Automatically finds and removes duplicate emails from TARGET (keeps oldest)
+5. **Summary**: Shows detailed timing and results
 ```
 
 **Options:**

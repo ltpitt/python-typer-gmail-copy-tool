@@ -1,11 +1,7 @@
 import os
 import logging
-import base64
-import email
-import hashlib
 import time
 from datetime import datetime
-from typing import Optional
 
 import typer
 from rich.box import SIMPLE
@@ -13,10 +9,8 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 from rich.progress import Progress, SpinnerColumn, BarColumn, TextColumn, TimeElapsedColumn, TimeRemainingColumn
-from rich.progress import Progress, SpinnerColumn, BarColumn, TextColumn, TimeElapsedColumn, TimeRemainingColumn
 
 from gmail_copy_tool.core.gmail_client import GmailClient
-from gmail_copy_tool.utils.canonicalization import compute_canonical_hash
 from gmail_copy_tool.utils.config import ConfigManager
 
 app = typer.Typer()
@@ -89,7 +83,12 @@ def get_all_message_ids_with_headers(client, label=None, after=None, before=None
     """Fetch all messages and create fingerprints (subject+from+date+attachments) for comparison."""
     service = client.service
     user_id = "me"
-    message_data = {}  # fingerprint -> {subject, from, date, gmail_id, message_id, attachments}
+    # Dict[fingerprint_key, List[email_metadata]]
+    # fingerprint_key: computed from subject+from+date+attachments
+    # email_metadata: {subject, from, date, gmail_id, message_id, attachments} stored for API operations
+    message_data = {}
+    total_emails = 0  # Track total number of emails (including duplicates)
+    duplicate_count = 0  # Track how many duplicates we found
     page_token = None
     query = ""
     if after:
@@ -186,72 +185,97 @@ def get_all_message_ids_with_headers(client, label=None, after=None, before=None
     total_messages = len(all_message_ids)
     logger.info(f"Fetching metadata for {total_messages} messages in batches of {BATCH_SIZE}...")
     
-    for i in range(0, total_messages, BATCH_SIZE):
-        batch_ids = all_message_ids[i:i + BATCH_SIZE]
-        batch = service.new_batch_http_request()
-        
-        # Store results from batch
-        batch_results = {}
-        
-        def create_callback(msg_id):
-            """Create a callback function for this specific message ID"""
-            def callback(request_id, response, exception):
-                if exception is not None:
-                    logger.warning(f"Error fetching message {msg_id}: {exception}")
-                else:
-                    batch_results[msg_id] = response
-            return callback
-        
-        # Add all requests to the batch
-        for msg_id in batch_ids:
-            batch.add(
-                service.users().messages().get(userId=user_id, id=msg_id, format="metadata"),
-                callback=create_callback(msg_id)
-            )
-        
-        # Execute the batch with retry logic for all errors
-        max_retries = 5
-        retry_delay = 2
-        for attempt in range(max_retries):
-            try:
-                batch.execute()
-                break  # Success, exit retry loop
-            except Exception as e:
-                if attempt < max_retries - 1:
-                    error_str = str(e)
-                    # Check if it's a rate limit error (needs longer delay)
-                    if "429" in error_str or "503" in error_str or "quota" in error_str.lower() or "rate" in error_str.lower():
-                        logger.warning(f"Rate limit hit, waiting {retry_delay}s before retry {attempt + 1}/{max_retries}...")
-                        time.sleep(retry_delay)
-                        retry_delay *= 2  # Exponential backoff for rate limits
-                    else:
-                        # Network or other transient errors - shorter retry delay
-                        logger.warning(f"Batch failed ({e}), retrying in 3s... ({attempt + 1}/{max_retries})")
-                        time.sleep(3)
-                    continue
-                else:
-                    # Final attempt failed
-                    logger.error(f"Batch execution failed after {max_retries} attempts: {e}")
-                    break
-        
-        # Process batch results
-        for msg_id, msg_meta in batch_results.items():
-            try:
-                data = process_message_metadata(msg_meta, msg_id)
-                message_data[data["fingerprint"]] = data
-            except Exception as e:
-                logger.warning(f"Error processing message {msg_id}: {e}")
-                continue
-        
-        # Log progress at INFO level so it's always visible
-        processed = min(i + BATCH_SIZE, total_messages)
-        logger.info(f"Progress: {processed}/{total_messages} messages fetched ({100*processed//total_messages}%)")
-        
-        # Add 1 second delay between batches to avoid rate limits
-        if i + BATCH_SIZE < total_messages:
-            time.sleep(1.0)
+    # Import Console for progress bar (should be at top, but keeping changes minimal)
+    from rich.console import Console
+    console = Console(force_terminal=True)
     
-    return message_data
+    with Progress(
+        SpinnerColumn(),
+        TextColumn("[progress.description]{task.description}"),
+        BarColumn(),
+        TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
+        TextColumn("({task.completed}/{task.total})"),
+        TimeElapsedColumn(),
+        TextColumn("|"),
+        TimeRemainingColumn(),
+        console=console,
+    ) as progress:
+        task = progress.add_task("[cyan]Fetching email metadata...", total=total_messages)
+        
+        for i in range(0, total_messages, BATCH_SIZE):
+            batch_ids = all_message_ids[i:i + BATCH_SIZE]
+            batch = service.new_batch_http_request()
+            
+            # Store results from batch
+            batch_results = {}
+            
+            def create_callback(msg_id):
+                """Create a callback function for this specific message ID"""
+                def callback(request_id, response, exception):
+                    if exception is not None:
+                        logger.warning(f"Error fetching message {msg_id}: {exception}")
+                    else:
+                        batch_results[msg_id] = response
+                return callback
+            
+            # Add all requests to the batch
+            for msg_id in batch_ids:
+                batch.add(
+                    service.users().messages().get(userId=user_id, id=msg_id, format="metadata"),
+                    callback=create_callback(msg_id)
+                )
+            
+            # Execute the batch with retry logic for all errors
+            max_retries = 5
+            retry_delay = 2
+            for attempt in range(max_retries):
+                try:
+                    batch.execute()
+                    break  # Success, exit retry loop
+                except Exception as e:
+                    if attempt < max_retries - 1:
+                        error_str = str(e)
+                        # Check if it's a rate limit error (needs longer delay)
+                        if "429" in error_str or "503" in error_str or "quota" in error_str.lower() or "rate" in error_str.lower():
+                            logger.warning(f"Rate limit hit, waiting {retry_delay}s before retry {attempt + 1}/{max_retries}...")
+                            time.sleep(retry_delay)
+                            retry_delay *= 2  # Exponential backoff for rate limits
+                        else:
+                            # Network or other transient errors - shorter retry delay
+                            logger.warning(f"Batch failed ({e}), retrying in 3s... ({attempt + 1}/{max_retries})")
+                            time.sleep(3)
+                        continue
+                    else:
+                        # Final attempt failed
+                        logger.error(f"Batch execution failed after {max_retries} attempts: {e}")
+                        break
+            
+            # Process batch results
+            for msg_id, msg_meta in batch_results.items():
+                try:
+                    data = process_message_metadata(msg_meta, msg_id)
+                    total_emails += 1
+                    fingerprint = data["fingerprint"]
+                    if fingerprint in message_data:
+                        duplicate_count += 1
+                        logger.debug(f"Duplicate found: {data['subject'][:50]}")
+                        message_data[fingerprint].append(data)
+                    else:
+                        message_data[fingerprint] = [data]
+                except Exception as e:
+                    logger.warning(f"Error processing message {msg_id}: {e}")
+                    continue
+            
+            # Update progress bar
+            processed = min(i + BATCH_SIZE, total_messages)
+            progress.update(task, completed=processed)
+            
+            # Add 1 second delay between batches to avoid rate limits
+            if i + BATCH_SIZE < total_messages:
+                time.sleep(1.0)
+    
+    logger.info(f"Total emails fetched: {total_emails}, Unique fingerprints: {len(message_data)}, Duplicates: {duplicate_count}")
+    return message_data, total_emails, duplicate_count
 
 @app.command()
 def compare(
@@ -263,7 +287,8 @@ def compare(
     year: int = typer.Option(None, help="Compare emails from specific year (e.g., 2024)"),
     limit: int = typer.Option(20, help="Maximum number of differences to show (default: 20)"),
     show_duplicates: bool = typer.Option(False, help="Show detailed duplicate analysis using content hash"),
-    sync: bool = typer.Option(False, help="Interactive mode: copy missing emails and ask to delete extras")
+    sync: bool = typer.Option(False, help="Interactive mode: copy missing emails and ask to delete extras"),
+    yes: bool = typer.Option(False, "--yes", "-y", help="Auto-confirm all prompts (non-interactive mode)")
 ):
     """Compare source and target accounts using content-based fingerprint (subject+from+date+attachments).
     
@@ -317,18 +342,18 @@ def compare(
         logger.debug("Fetching all Message-IDs for source...")
     logger.info(f"Fetching messages from SOURCE: {source_email}")
     start_time = time.time()
-    source_message_data = get_all_message_ids_with_headers(source_client, label=label, after=after, before=before)
+    source_message_data, source_total, source_dupes = get_all_message_ids_with_headers(source_client, label=label, after=after, before=before)
     timings['source_fetch'] = time.time() - start_time
-    logger.info(f"SOURCE fetch complete: {len(source_message_data)} messages found (took {timings['source_fetch']:.1f}s)")
+    logger.info(f"SOURCE fetch complete: {source_total} emails ({len(source_message_data)} unique, {source_dupes} duplicates) (took {timings['source_fetch']:.1f}s)")
     
     if debug_mode:
         logger.debug(f"Source has {len(source_message_data)} messages")
         logger.debug("Fetching all Message-IDs for target...")
     logger.info(f"Fetching messages from TARGET: {target_email}")
     start_time = time.time()
-    target_message_data = get_all_message_ids_with_headers(target_client, label=label, after=after, before=before)
+    target_message_data, target_total, target_dupes = get_all_message_ids_with_headers(target_client, label=label, after=after, before=before)
     timings['target_fetch'] = time.time() - start_time
-    logger.info(f"TARGET fetch complete: {len(target_message_data)} messages found (took {timings['target_fetch']:.1f}s)")
+    logger.info(f"TARGET fetch complete: {target_total} emails ({len(target_message_data)} unique, {target_dupes} duplicates) (took {timings['target_fetch']:.1f}s)")
     
     if debug_mode:
         logger.debug(f"Target has {len(target_message_data)} messages")
@@ -338,6 +363,10 @@ def compare(
     
     missing_in_target = source_msgids - target_msgids
     extra_in_target = target_msgids - source_msgids
+    
+    # For display and copying, use the first email of each fingerprint
+    source_message_display = {fp: emails[0] for fp, emails in source_message_data.items()}
+    target_message_display = {fp: emails[0] for fp, emails in target_message_data.items()}
     
     logger.info(f"Comparison results (CONTENT-BASED): MISSING_IN_TARGET={len(missing_in_target)}, EXTRA_IN_TARGET={len(extra_in_target)}")
     logger.info(f"Using fingerprint: Subject + From + Date(first 20 chars) + Attachments")
@@ -349,8 +378,12 @@ def compare(
     summary_table = Table(show_header=True, header_style="bold cyan", box=None, pad_edge=True)
     summary_table.add_column("Metric", style="bold", justify="right")
     summary_table.add_column("Value", style="bold green", justify="left")
-    summary_table.add_row("Total in source", str(len(source_msgids)))
-    summary_table.add_row("Total in target", str(len(target_msgids)))
+    summary_table.add_row("Total emails in source", f"{source_total} ({len(source_msgids)} unique)")
+    summary_table.add_row("Total emails in target", f"{target_total} ({len(target_msgids)} unique)")
+    if source_dupes > 0:
+        summary_table.add_row("Duplicates in source", str(source_dupes), style="yellow")
+    if target_dupes > 0:
+        summary_table.add_row("Duplicates in target", str(target_dupes), style="yellow")
     summary_table.add_row("Missing in target", str(len(missing_in_target)))
     summary_table.add_row("Extra in target", str(len(extra_in_target)))
     console.print(Panel(summary_table, title="📊 Comparison Summary", border_style="cyan", padding=(1,2)))
@@ -387,7 +420,7 @@ def compare(
         count = 0
         for fingerprint in list(missing_in_target)[:limit]:
             count += 1
-            data = source_message_data[fingerprint]
+            data = source_message_data[fingerprint][0]  # Use first email from list
             # Truncate long fields
             date_display = data["date"][:20] if data["date"] else ""
             from_display = data["from"][:30] if data["from"] else ""
@@ -425,7 +458,7 @@ def compare(
         count = 0
         for fingerprint in list(extra_in_target)[:limit]:
             count += 1
-            data = target_message_data[fingerprint]
+            data = target_message_data[fingerprint][0]  # Use first email from list
             # Truncate long fields
             date_display = data["date"][:20] if data["date"] else ""
             from_display = data["from"][:30] if data["from"] else ""
@@ -460,7 +493,10 @@ def compare(
         console.print(f"  • Missing emails will be COPIED from source to target")
         console.print(f"  • Extra emails in target will be PERMANENTLY DELETED (cannot be recovered)\n")
         
-        if not typer.confirm(f"Do you want to proceed with modifying {target_email}?", default=False):
+        if yes:
+            logger.info("Auto-confirm mode enabled (--yes flag)")
+            console.print("[bold green]Auto-confirm enabled: proceeding with sync...[/bold green]\n")
+        elif not typer.confirm(f"Do you want to proceed with modifying {target_email}?", default=False):
             logger.info("User cancelled sync operation")
             console.print("[yellow]Operation cancelled.[/yellow]")
             return
@@ -497,7 +533,7 @@ def compare(
                 task = progress.add_task("[cyan]Copying emails...", total=len(sorted_missing))
                 
                 for i, fingerprint in enumerate(sorted_missing, 1):
-                    data = source_message_data[fingerprint]
+                    data = source_message_data[fingerprint][0]  # Use first email from list
                     
                     # Update progress description with current email subject
                     subject_preview = data['subject'][:45] + '...' if len(data['subject']) > 45 else data['subject']
@@ -555,7 +591,7 @@ def compare(
             logger.debug(f"First 5 fingerprints to potentially delete: {[fp[:80] for fp in sorted_extra[:5]]}")
             
             for i, fingerprint in enumerate(sorted_extra, 1):
-                data = target_message_data[fingerprint]
+                data = target_message_data[fingerprint][0]  # Use first email from list
                 logger.info(f"[{i}/{len(extra_in_target)}] Extra email fingerprint: {fingerprint[:80]}...")
                 logger.info(f"  Message-ID: {data.get('message_id', 'N/A')[:50]}")
                 
@@ -577,6 +613,11 @@ def compare(
                     delete = True
                     logger.info("Delete ALL mode active - will delete without asking")
                     console.print(f"[red]→ Deleting (delete all mode)[/red]")
+                elif yes:
+                    delete = True
+                    delete_all = True  # Set delete_all for remaining emails
+                    logger.info("Auto-confirm mode: deleting all extra emails")
+                    console.print(f"[red]→ Deleting (auto-confirm mode)[/red]")
                 else:
                     response = typer.prompt(
                         f"[red]PERMANENTLY DELETE[/red] from {target_email}? (y/n/a for all)",
@@ -621,12 +662,65 @@ def compare(
         else:
             timings['delete_phase'] = 0
         
+        # Cleanup duplicates in target (keep only first occurrence of each fingerprint)
+        duplicates_to_remove = []
+        for fingerprint, emails in target_message_data.items():
+            if len(emails) > 1:
+                # Keep first email, mark rest for deletion
+                for email in emails[1:]:
+                    duplicates_to_remove.append(email)
+        
+        if duplicates_to_remove:
+            logger.info(f"Starting duplicate cleanup: {len(duplicates_to_remove)} duplicate emails in target")
+            console.print(f"\n[bold yellow]🧹 REMOVING DUPLICATES FROM TARGET: {len(duplicates_to_remove)} duplicate emails[/bold yellow]")
+            console.print(f"[cyan]Keeping oldest copy of each email[/cyan]\n")
+            
+            cleanup_start = time.time()
+            cleaned_count = 0
+            cleanup_errors = []
+            
+            with Progress(
+                SpinnerColumn(),
+                TextColumn("[progress.description]{task.description}"),
+                BarColumn(),
+                TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
+                TextColumn("({task.completed}/{task.total})"),
+                TimeElapsedColumn(),
+                TextColumn("|"),
+                TimeRemainingColumn(),
+                console=console,
+            ) as progress:
+                task = progress.add_task("[yellow]Removing duplicates...", total=len(duplicates_to_remove))
+                
+                for email in duplicates_to_remove:
+                    subject_preview = email['subject'][:45] + '...' if len(email['subject']) > 45 else email['subject']
+                    progress.update(task, description=f"[yellow]Removing: {subject_preview}")
+                    
+                    try:
+                        logger.debug(f"Deleting duplicate from TARGET, gmail_id={email['gmail_id']}")
+                        target_client.service.users().messages().delete(
+                            userId="me", id=email['gmail_id']
+                        ).execute()
+                        logger.info(f"SUCCESS: Deleted duplicate gmail_id={email['gmail_id']}")
+                        cleaned_count += 1
+                    except Exception as e:
+                        logger.error(f"FAILED to delete duplicate gmail_id={email['gmail_id']}: {e}", exc_info=True)
+                        cleanup_errors.append(f"{email['subject'][:50]}: {str(e)}")
+                    
+                    progress.advance(task)
+            
+            timings['cleanup_phase'] = time.time() - cleanup_start
+            logger.info(f"Cleanup phase complete: removed {cleaned_count} duplicates (took {timings['cleanup_phase']:.1f}s)")
+        else:
+            timings['cleanup_phase'] = 0
+            logger.info("No duplicates found in target")
+        
         # Calculate total time
         timings['total'] = sum(timings.values())
         
         # Summary
         logger.info("SYNC COMPLETE")
-        logger.info(f"Results: COPIED={copied_count}, DELETED={deleted_count}, SKIPPED={skipped_count}")
+        logger.info(f"Results: COPIED={copied_count}, DELETED={deleted_count}, CLEANED_DUPLICATES={cleaned_count if duplicates_to_remove else 0}, SKIPPED={skipped_count}")
         logger.info(f"Errors: COPY_ERRORS={len(copy_errors)}, DELETE_ERRORS={len(delete_errors)}")
         
         console.print("\n[bold cyan]" + "═" * 70 + "[/bold cyan]")
@@ -634,6 +728,8 @@ def compare(
         console.print("[bold cyan]" + "═" * 70 + "[/bold cyan]\n")
         console.print(f"[green]✓ Emails copied to {target_email}: {copied_count}[/green]")
         console.print(f"[red]✓ Emails permanently deleted from {target_email}: {deleted_count}[/red]")
+        if duplicates_to_remove:
+            console.print(f"[yellow]✓ Duplicate emails removed from {target_email}: {cleaned_count}[/yellow]")
         console.print(f"[dim]→ Deletions skipped (kept in {target_email}): {skipped_count}[/dim]")
         
         if copy_errors:
@@ -661,6 +757,8 @@ def compare(
             timing_table.add_row(f"Copy {copied_count} emails", f"{timings['copy_phase']:.1f}s")
         if timings['delete_phase'] > 0:
             timing_table.add_row(f"Delete {deleted_count} emails", f"{timings['delete_phase']:.1f}s")
+        if timings.get('cleanup_phase', 0) > 0:
+            timing_table.add_row(f"Remove {cleaned_count} duplicates", f"{timings['cleanup_phase']:.1f}s")
         timing_table.add_row("[bold]TOTAL TIME[/bold]", f"[bold]{timings['total']:.1f}s[/bold]")
         console.print(timing_table)
         
