@@ -1,4 +1,5 @@
 from google.auth.transport.requests import Request
+from google.auth import exceptions as auth_exceptions
 
 import os
 import typer
@@ -6,7 +7,6 @@ import logging
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
-from gmail_copy_tool.utils.timing import timing
 from rich.progress import Progress
 
 
@@ -61,7 +61,18 @@ class GmailClient:
             if not creds or not creds.valid:
                 if creds and creds.expired and creds.refresh_token:
                     logger.debug("Refreshing expired credentials.")
-                    creds.refresh(Request())
+                    try:
+                        creds.refresh(Request())
+                    except auth_exceptions.RefreshError as e:
+                        logger.warning(f"Token refresh failed: {e}. Deleting expired token and re-authenticating.")
+                        # Delete the expired token file
+                        if os.path.exists(self.token_path):
+                            os.remove(self.token_path)
+                            logger.debug(f"Deleted expired token file: {self.token_path}")
+                        # Re-authenticate with OAuth flow
+                        logger.debug(f"Starting OAuth flow using credentials file: {self.credentials_path}")
+                        flow = InstalledAppFlow.from_client_secrets_file(self.credentials_path, scopes)
+                        creds = flow.run_local_server(port=0)
                 else:
                     logger.debug(f"Starting OAuth flow using credentials file: {self.credentials_path}")
                     flow = InstalledAppFlow.from_client_secrets_file(self.credentials_path, scopes)
@@ -123,7 +134,17 @@ class GmailClient:
                     creds = None
                 if not creds or not creds.valid:
                     if creds and creds.expired and creds.refresh_token:
-                        creds.refresh(Request())
+                        try:
+                            creds.refresh(Request())
+                        except auth_exceptions.RefreshError as e:
+                            logger.warning(f"Token refresh failed: {e}. Deleting expired token and re-authenticating.")
+                            # Delete the expired token file
+                            if os.path.exists(self.token_path):
+                                os.remove(self.token_path)
+                                logger.debug(f"Deleted expired token file: {self.token_path}")
+                            # Re-authenticate with OAuth flow
+                            flow = InstalledAppFlow.from_client_secrets_file(credentials_path, scopes)
+                            creds = flow.run_local_server(port=0)
                     else:
                         flow = InstalledAppFlow.from_client_secrets_file(credentials_path, scopes)
                         creds = flow.run_local_server(port=0)

@@ -4,15 +4,48 @@ A simple, powerful CLI tool for managing Gmail accounts: copy emails, verify tra
 
 ---
 
-## ✨ Quick Start
+## ✨ Quick Start (Step-by-Step for Beginners)
 
-### 1. Install
+### 1. Download and Open the Project
+
+1. Download or clone this project to your computer
+2. Open a terminal/command prompt
+3. Navigate to the project folder:
+   ```bash
+   cd path\to\python-typer-gmail-copy-tool
+   ```
+
+### 2. Create and Activate Virtual Environment
+
+**On Windows:**
+```bash
+# Create virtual environment (only needed once)
+python -m venv .venv
+
+# Activate it (do this every time you open a new terminal)
+.venv\Scripts\activate
+```
+
+**On Mac/Linux:**
+```bash
+# Create virtual environment (only needed once)
+python3 -m venv .venv
+
+# Activate it (do this every time you open a new terminal)
+source .venv/bin/activate
+```
+
+You'll know it's activated when you see `(.venv)` at the start of your terminal line.
+
+### 3. Install the Tool
 
 ```bash
 pip install -e .
 ```
 
-### 2. Setup Your Accounts
+This installs the `gmail-copy-tool` command.
+
+### 4. Setup Your Accounts
 
 Run the interactive setup wizard to configure your Gmail accounts:
 
@@ -25,37 +58,39 @@ The wizard will:
 - Help you authenticate with your Gmail accounts
 - Save your accounts with easy-to-remember nicknames (e.g., "old-account", "new-account")
 
-### 3. Start Using It!
+### 5. Start Using It!
 
 ```bash
-# Copy all emails from one account to another
-gmail-copy-tool copy old-account new-account
+# Sync all emails from one account to another (interactive)
+gmail-copy-tool sync old-account new-account
 
-# Copy only emails from 2024
-gmail-copy-tool copy old-account new-account --year 2024
+# Sync only emails from 2024
+gmail-copy-tool sync old-account new-account --year 2024
 
-# Verify the copy was successful
-gmail-copy-tool compare old-account new-account
-
-# Check how many emails are in an account
-gmail-copy-tool analyze new-account
+# Fully automated sync (no questions asked)
+gmail-copy-tool sync old-account new-account --yes
 
 # See your configured accounts
 gmail-copy-tool list
 ```
 
-That's it! No more long command lines with credential paths.
+**Remember:** Always activate the virtual environment first! If you see "command not found", run `.venv\Scripts\activate` (Windows) or `source .venv/bin/activate` (Mac/Linux).
 
 ---
-
-## 📌 Features
-
+Beginner Friendly**: Clear step-by-step instructions, no complex commands
 - **Simple Setup**: Interactive wizard guides you through OAuth setup
 - **Easy Commands**: Use account nicknames instead of email addresses and file paths
-- **Resume Support**: Automatically resumes if interrupted
-- **Data Integrity**: Verifies all emails, attachments, and metadata are copied correctly
+- **Auto Token Refresh**: Automatically handles expired/revoked tokens
+- **Interactive Sync**: Compare, copy missing emails, and clean up extras in one command
+- **Automatic Duplicate Removal**: Finds and removes duplicate emails from target account
+- **Non-Interactive Mode**: Use `--yes` flag for fully automated sync
+- **Visual Progress Bars**: Beautiful real-time progress indicators
 - **Year Shortcuts**: Quickly filter by year with `--year 2024`
-- **Smart Comparison**: Uses canonical hashing to detect differences
+- **Content-Based Comparison**: Uses fingerprint (subject+from+date+attachments) to detect differences
+- **Batch Processing**: Handles thousands of emails efficiently with smart rate limiting
+- **Interactive Sync**: Compare, copy missing emails, and clean up extras in one command
+- **Year Shortcuts**: Quickly filter by year with `--year 2024`
+- **Content-Based Comparison**: Uses fingerprint (subject+from+date+attachments) to detect differences
 
 ---
 
@@ -95,97 +130,109 @@ Interactive wizard to add Gmail accounts. You'll need:
 gmail-copy-tool list
 ```
 Show all configured accounts with their nicknames and email addresses.
-
-### Copy Emails
+Shows you total vs unique email counts (detects duplicates)
+- Copies missing emails to TARGET
+- Interactively asks if you want to delete extra emails from TARGET (or auto-deletes with `--yes`)
+- **Automatically removes duplicate emails from TARGET** (keeps oldest copy)
+- Shows beautiful real-time progress bars for all operations
+- Displays detailed performance timing summary
 ```bash
-gmail-copy-tool copy SOURCE TARGET [OPTIONS]
+gmail-copy-tool sync SOURCE TARGET [OPTIONS]
 ```
+
+Synchronize emails from SOURCE to TARGET account. The command:
+- Compares both accounts using content-based fingerprint (Message-ID + subject + from + attachments)
+- Shows you total vs unique email counts (detects duplicates)
+- Copies missing emails to TARGET
+- Interactively asks if you want to delete extra emails from TARGET (or auto-deletes with `--yes`)
+- **Automatically removes duplicate emails from TARGET** (keeps oldest copy)
+- Shows beautiful real-time progress bars for all operations
+- Displays detailed performance timing summary
+
+**📋 Complete Command (Copy-Paste Ready):**
+
+**Windows (PowerShell):**
+```powershell
+.venv\Scripts\activate; $env:GMAIL_COPY_TOOL_DEBUG="1"; gmail-copy-tool sync SOURCE TARGET --yes
+```
+
+**Mac/Linux:**
+```bash
+source .venv/bin/activate && GMAIL_COPY_TOOL_DEBUG=1 gmail-copy-tool sync SOURCE TARGET --yes
+```
+
+Replace `SOURCE` and `TARGET` with your account nicknames (e.g., `old-account` and `new-account`).
+
+This command:
+- ✅ Automatically activates the virtual environment
+- ✅ Enables debug mode for detailed logs
+- ✅ Runs fully automated sync (no questions asked)
 
 Examples:
 ```bash
-# Copy all emails
-gmail-copy-tool copy old-account new-account
+# Sync all emails
+gmail-copy-tool sync old-account new-account
 
-# Copy only 2024 emails
-gmail-copy-tool copy old-account new-account --year 2024
+# Sync only 2024 emails
+gmail-copy-tool sync old-account new-account --year 2024
 
-# Copy emails from a specific date range
-gmail-copy-tool copy old-account new-account --after 2024-01-01 --before 2024-06-30
-
-# Copy emails with a specific label
-gmail-copy-tool copy old-account new-account --label "Important"
+# Fully automated sync (no prompts, auto-confirm all)
+gmail-copy-tool sync old-account new-account --yes
 ```
 
-### Compare Accounts
+**Options:**
+- `--yes` / `-y` - Auto-confirm all prompts (non-interactive mode for automation)
+- `--year YEAR` - Sync only emails from a specific year
+- `--after DATE` - Sync emails after this date (YYYY-MM-DD)
+- `--before DATE` - Sync emails before this date (YYYY-MM-DD)  
+- `--label LABEL` - Sync only emails with this Gmail label
+- `--limit N` - Show maximum N differences (default: 20)
+- `--show-duplicates` - Show detailed duplicate analysis using content hash
+
+**What Happens During Sync:**
+1. **Fetch & Compare**: Downloads metadata from both accounts with visual progress
+2. **Copy Missing**: Copies emails that exist in SOURCE bu
+
+### Automation with --yes Flag
+
+Use the `--yes` flag to run syncs without any user interaction:
+
 ```bash
-gmail-copy-tool compare SOURCE TARGET [OPTIONS]
+# Fully automated sync (perfect for scheduled tasks)
+gmail-copy-tool sync source-account target-account --yes
 ```
 
-Verify that all emails from SOURCE exist in TARGET.
+This will:
+- Auto-confirm the initial sync prompt
+- Automatically delete all extra emails without asking
+- Automatically remove duplicates
+- Run from start to finish with zero user input
 
-Examples:
-```bash
-# Compare all emails
-gmail-copy-tool compare old-account new-account
+Perfect for scheduled tasks or batch processing!
 
-# Compare only 2024 emails
-gmail-copy-tool compare old-account new-account --year 2024
+### Handling Duplicates
+
+The tool automatically detects and removes duplicates during sync:
+- **Detection**: Uses fingerprint (subject + from + date + attachments) to find identical emails
+- **Removal**: Keeps the oldest copy, deletes the rest
+- **Target Only**: Only removes duplicates from TARGET account, SOURCE is never modified
+- **Automatic**: No configuration needed, happens during every synct not in TARGET
+3. **Delete Extras**: Asks if you want to delete emails in TARGET that don't exist in SOURCE
+4. **Remove Duplicates**: Automatically finds and removes duplicate emails from TARGET (keeps oldest)
+5. **Summary**: Shows detailed timing and results
 ```
 
-### Analyze Account
-```bash
-gmail-copy-tool analyze ACCOUNT [OPTIONS]
-```
-
-Count emails in an account.
-
-Examples:
-```bash
-# Total email count
-gmail-copy-tool analyze my-account
-
-# Count 2024 emails
-gmail-copy-tool analyze my-account --year 2024
-
-# Count emails with a specific label
-gmail-copy-tool analyze my-account --label "Work"
-```
-
-### Remove Copied Emails
-```bash
-gmail-copy-tool remove-copied SOURCE TARGET
-```
-
-Delete from SOURCE all emails that exist in TARGET. Useful for cleanup after migration.
-
-⚠️ **Warning**: This permanently deletes emails. Use `compare` first to verify!
-
-### Delete Duplicates
-```bash
-gmail-copy-tool delete-duplicates ACCOUNT
-```
-
-Find and delete duplicate emails in an account based on content.
-
-⚠️ **Warning**: This permanently deletes emails.
+**Options:**
+- `--year YEAR` - Sync only emails from a specific year
+- `--after DATE` - Sync emails after this date (YYYY-MM-DD)
+- `--before DATE` - Sync emails before this date (YYYY-MM-DD)  
+- `--label LABEL` - Sync only emails with this Gmail label
+- `--limit N` - Show maximum N differences (default: 20)
+- `--show-duplicates` - Show detailed duplicate analysis using content hash
 
 ---
 
 ## 🔧 Advanced Usage
-
-### For Integration Tests (Legacy Mode)
-
-The tool still supports the old explicit credential/token syntax for testing:
-
-```bash
-gmail-copy-tool copy \
-  --source source@gmail.com \
-  --target target@gmail.com \
-  --credentials-source credentials_source.json \
-  --credentials-target credentials_target.json \
-  --token-source token_source.json \
-  --token-target token_target.json
-```
 
 ### Environment Variables
 
@@ -229,18 +276,24 @@ Integration tests verify:
 
 ## ⚙️ How It Works
 
-### Canonical Hashing
-The tool uses "canonical hashing" to compare emails across accounts. This means:
-- Ignores Gmail-injected headers (like `X-Gmail-Labels`)
-- Normalizes date formats
-- Compares based on essential content (From, To, Subject, Body, Attachments)
-- Robust against Gmail's internal modifications
+### Content-Based Fingerprinting
+The tool compares emails using a fingerprint composed of:
+- **Subject** - Email subject line
+- **From** - Sender address  
+- **Date** - Timestamp (first 20 chars to handle timezone variations)
+- **Attachments** - Filename and size for each attachment
 
-### Resume Mechanism
-Copy operations can be interrupted and resumed:
-- Progress is saved in `.gmail-copy-checkpoint.json`
-- Already-copied emails are skipped on resume
-- Safe to run multiple times
+This approach:
+- Is more reliable than Message-ID (which can change across accounts)
+- Detects true duplicates even if Message-IDs differ
+- Handles Gmail's internal modifications gracefully
+
+### Auto Token Refresh
+The tool automatically handles expired or revoked OAuth tokens:
+- Detects `invalid_grant` errors
+- Deletes the expired token file
+- Re-initiates OAuth flow for fresh credentials
+- No manual intervention needed
 
 ### Data Integrity
 The tool copies:
@@ -262,13 +315,19 @@ The tool copies:
 - Check `gmail-copy-tool list` to see configured accounts
 - Account nicknames are case-sensitive
 
-**Authentication prompts every time**
-- Make sure your token files are being saved correctly
-- Check file permissions on `~/.gmail-copy-tool/`
+**Authentication prompts**
+- The tool automatically handles expired/revoked tokens
+- You'll be prompted to re-authenticate when needed
+- Check file permissions on `~/.gmail-copy-tool/` if issues persist
 
 **Rate limit errors**
 - The tool automatically retries with exponential backoff
 - For large migrations, be patient - Gmail API has strict quotas
+
+**Emails not appearing in Gmail**
+- Refresh the page (Ctrl+F5)
+- Check "All Mail" folder
+- Wait a few minutes for synchronization
 
 ---
 
