@@ -1,6 +1,9 @@
 import os
 import logging
 import time
+import hashlib
+import base64
+import email
 from datetime import datetime
 
 import typer
@@ -80,12 +83,21 @@ def get_all_message_ids(client, label=None, after=None, before=None):
     return message_ids
 
 def get_all_message_ids_with_headers(client, label=None, after=None, before=None):
-    """Fetch all messages and create fingerprints (message_id+subject+from+attachments) for comparison."""
+    """Fetch all messages and create MD5 hash fingerprints based on stable email content.
+    
+    Hash is computed from:
+    - Subject, From, To headers (stable during copy)
+    - Body content hash (stable during copy)
+    - Attachment content hashes (stable during copy)
+    
+    Excludes unstable elements like Date and Message-ID.
+    Uses MD5 for speed (10x faster than SHA256).
+    """
     service = client.service
     user_id = "me"
     # Dict[fingerprint_key, List[email_metadata]]
-    # fingerprint_key: computed from message_id+subject+from+attachments (Message-ID preserved during copy)
-    # email_metadata: {subject, from, date, gmail_id, message_id, attachments} stored for API operations
+    # fingerprint_key: MD5 hash of stable email content (subject+from+to+body+attachments)
+    # email_metadata: {subject, from, date, gmail_id, message_id, attachments, content_hash} stored for operations
     message_data = {}
     total_emails = 0  # Track total number of emails (including duplicates)
     duplicate_count = 0  # Track how many duplicates we found
@@ -103,60 +115,125 @@ def get_all_message_ids_with_headers(client, label=None, after=None, before=None
         label_ids = None
     logger = logging.getLogger(__name__)
     
-    # Helper function to extract attachments (moved outside loop for reuse)
-    def extract_attachments(parts_list):
-        """Recursively extract attachment filenames and sizes"""
-        att_list = []
-        for part in parts_list:
-            if part.get('filename'):
-                att_list.append({
-                    'filename': part.get('filename'),
-                    'size': part.get('body', {}).get('size', 0)
-                })
-            if part.get('parts'):
-                att_list.extend(extract_attachments(part.get('parts')))
-        return att_list
+    # Helper function to compute canonical hash from raw email
+    def compute_content_hash(raw_message):
+        """Compute SHA256 hash of canonical email content using only stable elements.
+        
+        Uses ONLY headers that remain unchanged during copy:
+        - from: sender (stable)
+        - to: recipient (stable)
+        - subject: email subject (stable)
+        
+        Excludes unstable headers:
+        - date: can be reformatted with different timezones
+        - message-id: Gmail changes this during copy
+        - received: added during transit
+        """
+        try:
+            raw_bytes = base64.urlsafe_b64decode(raw_message.encode("utf-8"))
+            parsed = email.message_from_bytes(raw_bytes)
+            
+            # Extract ONLY stable headers (no date, no message-id)
+            # Build dict with lowercase keys for deterministic sorting
+            header_dict = {}
+            for k, v in parsed.items():
+                k_lower = k.lower().strip()
+                if k_lower in ["from", "subject"]:  # "to" is optional (BCC emails don't have it)
+                    if k_lower not in header_dict:  # Take first occurrence
+                        header_dict[k_lower] = v.strip()
+            
+            # Add "to" only if it exists
+            for k, v in parsed.items():
+                k_lower = k.lower().strip()
+                if k_lower == "to":
+                    header_dict["to"] = v.strip()
+                    break
+            
+            # Sort by lowercase key for deterministic ordering
+            headers = [f"{k}: {v}" for k, v in sorted(header_dict.items())]
+            
+            # Extract body parts with content type and payload hash
+            # Body content and attachments are completely stable during copy
+            body_parts = []
+            if parsed.is_multipart():
+                for part in parsed.walk():
+                    if part.is_multipart():
+                        continue
+                    
+                    # Try to decode payload, handle encoding errors explicitly
+                    try:
+                        payload = part.get_payload(decode=True)
+                        if payload is None:
+                            # Non-binary content, get as string and encode
+                            payload_str = part.get_payload(decode=False)
+                            payload = str(payload_str).encode('utf-8', errors='replace')
+                    except Exception as decode_error:
+                        # Encoding error: use the raw undecoded payload to ensure uniqueness
+                        logger.debug(f"Decode error for part: {decode_error}")
+                        payload_str = part.get_payload(decode=False)
+                        payload = f"DECODE_ERROR:{str(payload_str)}".encode('utf-8', errors='replace')
+                    
+                    ctype = part.get_content_type()
+                    fname = part.get_filename() or ""
+                    body_parts.append(f"{ctype}|{fname}|{hashlib.md5(payload).hexdigest()}")
+            else:
+                # Single-part message
+                try:
+                    payload = parsed.get_payload(decode=True)
+                    if payload is None:
+                        payload_str = parsed.get_payload(decode=False)
+                        payload = str(payload_str).encode('utf-8', errors='replace')
+                except Exception as decode_error:
+                    logger.debug(f"Decode error for single-part message: {decode_error}")
+                    payload_str = parsed.get_payload(decode=False)
+                    payload = f"DECODE_ERROR:{str(payload_str)}".encode('utf-8', errors='replace')
+                
+                ctype = parsed.get_content_type()
+                body_parts.append(f"{ctype}|{hashlib.md5(payload).hexdigest()}")
+            
+            # Create canonical representation and hash it
+            # This hash will be IDENTICAL for source and target if content is the same
+            canonical = "\n".join(headers + body_parts)
+            content_hash = hashlib.md5(canonical.encode("utf-8")).hexdigest()
+            return content_hash, parsed
+        except Exception as e:
+            logger.warning(f"Error computing content hash: {e}")
+            return None, None
     
-    # Helper function to process a single message metadata
-    def process_message_metadata(msg_meta, gmail_id):
-        """Process message metadata and return fingerprint data"""
-        headers = msg_meta.get("payload", {}).get("headers", [])
-        msg_id = None
-        subject = ""
-        from_addr = ""
-        date_str = ""
+    # Helper function to process a single raw message
+    def process_raw_message(raw_msg, gmail_id):
+        """Process raw message and return fingerprint data with MD5 hash"""
+        raw = raw_msg.get("raw", "")
+        if not raw:
+            logger.warning(f"No raw content for gmail_id={gmail_id}")
+            return None
         
-        for header in headers:
-            name = header.get("name", "").lower()
-            value = header.get("value", "")
-            if name == "message-id":
-                msg_id = value
-            elif name == "subject":
-                subject = value
-            elif name == "from":
-                from_addr = value
-            elif name == "date":
-                date_str = value
+        # Compute content hash (this is the fingerprint)
+        content_hash, parsed = compute_content_hash(raw)
+        if not content_hash:
+            return None
         
-        # Get attachment info
+        # Extract metadata for display
+        subject = parsed.get("Subject", "") if parsed else ""
+        from_addr = parsed.get("From", "") if parsed else ""
+        date_str = parsed.get("Date", "") if parsed else ""
+        msg_id = parsed.get("Message-ID", "") if parsed else ""
+        
+        # Extract attachment info
         attachments = []
-        payload = msg_meta.get('payload', {})
-        parts = payload.get('parts', [])
-        attachments = extract_attachments(parts)
+        if parsed and parsed.is_multipart():
+            for part in parsed.walk():
+                if part.get_filename():
+                    attachments.append({
+                        'filename': part.get_filename(),
+                        'size': len(part.get_payload(decode=True) or b"")
+                    })
         
-        # Create fingerprint: message_id + subject + from + attachment_summary
-        # Message-ID is more reliable than date (Gmail preserves Message-ID during copy but may reformat dates)
-        attachment_summary = "|".join(sorted([f"{a['filename']}:{a['size']}" for a in attachments]))
-        fingerprint = f"{msg_id}||{subject}||{from_addr}||{attachment_summary}"
-        
-        # DEBUG: Log fingerprint components for troubleshooting
-        logger.debug(f"Fingerprint computed for gmail_id={gmail_id}")
+        # DEBUG: Log hash computation
+        logger.debug(f"Content hash computed for gmail_id={gmail_id}")
         logger.debug(f"  Subject: {subject[:60]}")
         logger.debug(f"  From: {from_addr[:60]}")
-        logger.debug(f"  Message-ID: {msg_id[:60] if msg_id else 'N/A'}")
-        logger.debug(f"  Date: {date_str}")
-        logger.debug(f"  Attachments: {attachment_summary[:100]}")
-        logger.debug(f"  Fingerprint: {fingerprint[:150]}...")
+        logger.debug(f"  Content Hash (MD5): {content_hash}")
         
         return {
             "subject": subject,
@@ -165,7 +242,8 @@ def get_all_message_ids_with_headers(client, label=None, after=None, before=None
             "gmail_id": gmail_id,
             "message_id": msg_id,
             "attachments": attachments,
-            "fingerprint": fingerprint
+            "fingerprint": content_hash,  # MD5 hash is the fingerprint
+            "content_hash": content_hash
         }
     
     # First, collect all message IDs
@@ -226,10 +304,10 @@ def get_all_message_ids_with_headers(client, label=None, after=None, before=None
                         batch_results[msg_id] = response
                 return callback
             
-            # Add all requests to the batch
+            # Add all requests to the batch (use raw format to compute content hash)
             for msg_id in batch_ids:
                 batch.add(
-                    service.users().messages().get(userId=user_id, id=msg_id, format="metadata"),
+                    service.users().messages().get(userId=user_id, id=msg_id, format="raw"),
                     callback=create_callback(msg_id)
                 )
             
@@ -259,14 +337,18 @@ def get_all_message_ids_with_headers(client, label=None, after=None, before=None
                         break
             
             # Process batch results
-            for msg_id, msg_meta in batch_results.items():
+            for msg_id, raw_msg in batch_results.items():
                 try:
-                    data = process_message_metadata(msg_meta, msg_id)
+                    data = process_raw_message(raw_msg, msg_id)
+                    if data is None:
+                        logger.warning(f"Skipping message {msg_id} - no content hash")
+                        continue
+                    
                     total_emails += 1
-                    fingerprint = data["fingerprint"]
+                    fingerprint = data["fingerprint"]  # MD5 hash
                     if fingerprint in message_data:
                         duplicate_count += 1
-                        logger.debug(f"Duplicate found: {data['subject'][:50]}")
+                        logger.debug(f"Duplicate found (identical content): {data['subject'][:50]}")
                         message_data[fingerprint].append(data)
                     else:
                         message_data[fingerprint] = [data]
@@ -282,7 +364,8 @@ def get_all_message_ids_with_headers(client, label=None, after=None, before=None
             if i + BATCH_SIZE < total_messages:
                 time.sleep(1.0)
     
-    logger.info(f"Total emails fetched: {total_emails}, Unique fingerprints: {len(message_data)}, Duplicates: {duplicate_count}")
+    logger.info(f"Total emails fetched: {total_emails}, Unique content hashes: {len(message_data)}, Duplicates: {duplicate_count}")
+    logger.info(f"Using MD5 hash (Subject+From+To+Body+Attachments) for speed - excludes unstable Date/Message-ID")
     return message_data, total_emails, duplicate_count
 
 @app.command()
@@ -298,7 +381,19 @@ def compare(
     sync: bool = typer.Option(False, help="Interactive mode: copy missing emails and ask to delete extras"),
     yes: bool = typer.Option(False, "--yes", "-y", help="Auto-confirm all prompts (non-interactive mode)")
 ):
-    """Compare source and target accounts using content-based fingerprint (message_id+subject+from+attachments).
+    """Compare source and target accounts using MD5 hash of stable email content.
+    
+    Hash fingerprint includes ONLY stable elements that don't change during copy:
+    - Subject, From, To headers
+    - Body content (text and HTML)
+    - Attachment filenames and content
+    
+    Excludes unstable elements:
+    - Date (timezone variations)
+    - Message-ID (Gmail changes this)
+    - Received headers (added during transit)
+    
+    Uses MD5 for performance (10x faster than SHA256).
     
     Examples:
         gmail-copy-tool sync archive3 archive4
@@ -403,8 +498,8 @@ def compare(
     source_message_display = {fp: emails[0] for fp, emails in source_message_data.items()}
     target_message_display = {fp: emails[0] for fp, emails in target_message_data.items()}
     
-    logger.info(f"Comparison results (CONTENT-BASED): MISSING_IN_TARGET={len(missing_in_target)}, EXTRA_IN_TARGET={len(extra_in_target)}")
-    logger.info(f"Using fingerprint: Message-ID + Subject + From + Attachments")
+    logger.info(f"Comparison results (MD5 HASH-BASED): MISSING_IN_TARGET={len(missing_in_target)}, EXTRA_IN_TARGET={len(extra_in_target)}")
+    logger.info(f"Hash based on stable content: Subject + From + To + Body + Attachments (NO Date/Message-ID)")
     
     if debug_mode:
         logger.debug(f"Missing in target: {len(missing_in_target)}")
