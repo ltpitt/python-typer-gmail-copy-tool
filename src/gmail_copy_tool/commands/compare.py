@@ -144,17 +144,17 @@ def get_all_message_ids_with_headers(client, label=None, after=None, before=None
         parts = payload.get('parts', [])
         attachments = extract_attachments(parts)
         
-        # Create fingerprint: subject + from + date_prefix + attachment_summary
-        # Use only first 20 chars of date to handle slight time variations
-        date_prefix = date_str[:20] if date_str else ""
+        # Create fingerprint: message_id + subject + from + attachment_summary
+        # Message-ID is more reliable than date (Gmail preserves Message-ID during copy but may reformat dates)
         attachment_summary = "|".join(sorted([f"{a['filename']}:{a['size']}" for a in attachments]))
-        fingerprint = f"{subject}||{from_addr}||{date_prefix}||{attachment_summary}"
+        fingerprint = f"{msg_id}||{subject}||{from_addr}||{attachment_summary}"
         
         # DEBUG: Log fingerprint components for troubleshooting
         logger.debug(f"Fingerprint computed for gmail_id={gmail_id}")
         logger.debug(f"  Subject: {subject[:60]}")
         logger.debug(f"  From: {from_addr[:60]}")
-        logger.debug(f"  Date prefix: '{date_prefix}'")
+        logger.debug(f"  Message-ID: {msg_id[:60] if msg_id else 'N/A'}")
+        logger.debug(f"  Date: {date_str}")
         logger.debug(f"  Attachments: {attachment_summary[:100]}")
         logger.debug(f"  Fingerprint: {fingerprint[:150]}...")
         
@@ -776,46 +776,75 @@ def compare(
         logger.info(f"Results: COPIED={copied_count}, DELETED={deleted_count}, CLEANED_DUPLICATES={cleaned_count if duplicates_to_remove else 0}, SKIPPED={skipped_count}")
         logger.info(f"Errors: COPY_ERRORS={len(copy_errors)}, DELETE_ERRORS={len(delete_errors)}")
         
-        console.print("\n[bold cyan]" + "═" * 70 + "[/bold cyan]")
-        console.print("[bold cyan]                    SYNC COMPLETE[/bold cyan]")
-        console.print("[bold cyan]" + "═" * 70 + "[/bold cyan]\n")
-        console.print(f"[green]✓ Emails copied to {target_email}: {copied_count}[/green]")
-        console.print(f"[red]✓ Emails permanently deleted from {target_email}: {deleted_count}[/red]")
-        if duplicates_to_remove:
-            console.print(f"[yellow]✓ Duplicate emails removed from {target_email}: {cleaned_count}[/yellow]")
-        console.print(f"[dim]→ Deletions skipped (kept in {target_email}): {skipped_count}[/dim]")
+        # ═══════════════════════════════════════════════════════════════
+        # FINAL SUMMARY (always shown, regardless of debug mode)
+        # ═══════════════════════════════════════════════════════════════
+        console.print("\n" + "═" * 80)
+        console.print("[bold green]✓ SYNCHRONIZATION COMPLETE[/bold green]".center(90))
+        console.print("═" * 80 + "\n")
         
-        if copy_errors:
-            console.print(f"\n[bold red]⚠ Copy errors ({len(copy_errors)}):[/bold red]")
-            for err in copy_errors[:10]:
-                console.print(f"  [red]• {err}[/red]")
-            if len(copy_errors) > 10:
-                console.print(f"  [dim]... and {len(copy_errors) - 10} more[/dim]")
-                
-        if delete_errors:
-            console.print(f"\n[bold red]⚠ Delete errors ({len(delete_errors)}):[/bold red]")
-            for err in delete_errors[:10]:
-                console.print(f"  [red]• {err}[/red]")
-            if len(delete_errors) > 10:
-                console.print(f"  [dim]... and {len(delete_errors) - 10} more[/dim]")
+        # Calculate unique counts (total already calculated earlier)
+        source_unique = len(source_message_data)
+        target_unique = len(target_message_data)
         
-        # Timing summary
-        console.print(f"\n[bold cyan]⏱ Performance Summary:[/bold cyan]")
-        timing_table = Table(show_header=True, header_style="bold cyan", box=None, pad_edge=False)
-        timing_table.add_column("Phase", style="cyan", justify="left")
-        timing_table.add_column("Time", style="green", justify="right")
-        timing_table.add_row("Fetch source emails", f"{timings['source_fetch']:.1f}s")
-        timing_table.add_row("Fetch target emails", f"{timings['target_fetch']:.1f}s")
-        if timings['copy_phase'] > 0:
-            timing_table.add_row(f"Copy {copied_count} emails", f"{timings['copy_phase']:.1f}s")
-        if timings['delete_phase'] > 0:
-            timing_table.add_row(f"Delete {deleted_count} emails", f"{timings['delete_phase']:.1f}s")
-        if timings.get('cleanup_phase', 0) > 0:
-            timing_table.add_row(f"Remove {cleaned_count} duplicates", f"{timings['cleanup_phase']:.1f}s")
-        timing_table.add_row("[bold]TOTAL TIME[/bold]", f"[bold]{timings['total']:.1f}s[/bold]")
-        console.print(timing_table)
+        # Calculate final target state (after sync)
+        target_final_total = target_total + copied_count - deleted_count - (cleaned_count if duplicates_to_remove else 0)
+        target_final_unique = source_unique  # Should match source after successful sync
         
-        # Print debug analysis at the end if available
+        # Email counts summary
+        console.print("[bold white]📊 EMAIL COUNTS[/bold white]")
+        console.print(f"   Source:             {source_total:,} total  ({source_unique:,} unique)")
+        console.print(f"   Target (before):    {target_total:,} total  ({target_unique:,} unique)")
+        console.print(f"   Target (after):     {target_final_total:,} total  ({target_final_unique:,} unique)")
+        
+        # Actions performed
+        console.print(f"\n[bold white]🔄 ACTIONS PERFORMED[/bold white]")
+        if copied_count > 0:
+            console.print(f"   [green]✓ Copied:           {copied_count:,} emails[/green]")
+        if deleted_count > 0:
+            console.print(f"   [red]✓ Deleted:          {deleted_count:,} emails[/red]")
+        if duplicates_to_remove and cleaned_count > 0:
+            console.print(f"   [yellow]✓ Duplicates removed: {cleaned_count:,} emails[/yellow]")
+        if skipped_count > 0:
+            console.print(f"   [dim]→ Skipped:          {skipped_count:,} emails[/dim]")
+        if copied_count == 0 and deleted_count == 0 and cleaned_count == 0:
+            console.print(f"   [green]✓ No changes needed - accounts already in sync![/green]")
+        
+        # Errors (if any)
+        if copy_errors or delete_errors:
+            console.print(f"\n[bold red]⚠ ERRORS[/bold red]")
+            if copy_errors:
+                console.print(f"   Copy errors: {len(copy_errors)}")
+                for err in copy_errors[:5]:
+                    console.print(f"     [red]• {err}[/red]")
+                if len(copy_errors) > 5:
+                    console.print(f"     [dim]... and {len(copy_errors) - 5} more[/dim]")
+            if delete_errors:
+                console.print(f"   Delete errors: {len(delete_errors)}")
+                for err in delete_errors[:5]:
+                    console.print(f"     [red]• {err}[/red]")
+                if len(delete_errors) > 5:
+                    console.print(f"     [dim]... and {len(delete_errors) - 5} more[/dim]")
+        
+        # Performance summary
+        console.print(f"\n[bold white]⏱ PERFORMANCE[/bold white]")
+        total_minutes = timings['total'] / 60
+        if total_minutes < 1:
+            console.print(f"   Total time: {timings['total']:.1f}s")
+        else:
+            console.print(f"   Total time: {int(total_minutes)}m {timings['total'] % 60:.0f}s")
+        
+        # Final message
+        if copied_count == 0 and deleted_count == 0 and cleaned_count == 0 and not copy_errors and not delete_errors:
+            console.print(f"\n[bold green]✓ Accounts are identical - no changes needed![/bold green]")
+        elif copy_errors or delete_errors:
+            console.print(f"\n[bold yellow]⚠ Sync completed with {len(copy_errors) + len(delete_errors)} errors. Check logs above.[/bold yellow]")
+        else:
+            console.print(f"\n[bold green]✓ Sync successful! Target now matches source.[/bold green]")
+        
+        console.print("═" * 80 + "\n")
+        
+        # Print debug analysis at the end if available (only in debug mode)
         if debug_analysis:
             console.print("\n[bold yellow]🔍 DEBUG: FINGERPRINT ANALYSIS[/bold yellow]")
             for line in debug_analysis:

@@ -7,11 +7,6 @@
 .venv\Scripts\activate; $env:GMAIL_COPY_TOOL_DEBUG="1"; gmail-copy-tool sync ORIGINE DESTINAZIONE --yes
 ```
 
-**Mac/Linux:**
-```bash
-source .venv/bin/activate && GMAIL_COPY_TOOL_DEBUG=1 gmail-copy-tool sync ORIGINE DESTINAZIONE --yes
-```
-
 ---
 
 ## 📝 Come Usarlo
