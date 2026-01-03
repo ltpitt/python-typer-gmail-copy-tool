@@ -430,7 +430,10 @@ def compare(
         from_addr = source_data.get("from", "").strip().lower()
         date = source_data.get("date", "")[:20].strip()  # First 20 chars of date
         
-        for target_msgid, target_data in target_data_dict.items():
+        for target_msgid, target_emails_list in target_data_dict.items():
+            # target_emails_list is a LIST of email dicts (to track duplicates)
+            # Just check the first one - they all have the same fingerprint
+            target_data = target_emails_list[0] if target_emails_list else {}
             target_subject = target_data.get("subject", "").strip().lower()
             target_from = target_data.get("from", "").strip().lower()
             target_date = target_data.get("date", "")[:20].strip()
