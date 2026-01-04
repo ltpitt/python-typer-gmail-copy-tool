@@ -815,6 +815,9 @@ def compare(
         
         # Cleanup duplicates in target (keep only first occurrence of each fingerprint)
         duplicates_to_remove = []
+        cleaned_count = 0
+        cleanup_errors = []
+        
         for fingerprint, emails in target_message_data.items():
             if len(emails) > 1:
                 # Keep first email, mark rest for deletion
@@ -827,8 +830,6 @@ def compare(
             console.print(f"[cyan]Keeping oldest copy of each email[/cyan]\n")
             
             cleanup_start = time.time()
-            cleaned_count = 0
-            cleanup_errors = []
             
             with Progress(
                 SpinnerColumn(),
